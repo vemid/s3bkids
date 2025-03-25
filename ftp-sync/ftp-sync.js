@@ -1,13 +1,10 @@
-// ftp-sync.js
-const ftp = require('basic-ftp');
+// ftp-sync.js sa ftp-srv bibliotekom
+const FTPClient = require('ftp'); // Koristimo standardnu 'ftp' biblioteku
 const fs = require('fs');
 const path = require('path');
-const axios = require('axios');
-const mime = require('mime-types');
 const { CronJob } = require('cron');
 const { promisify } = require('util');
 const { uploadToMinioDirectly } = require('./direct-upload');
-const pipeline = promisify(require('stream').pipeline);
 
 // Konfiguracija
 const config = {
@@ -29,7 +26,14 @@ const config = {
   cronSchedule: process.env.CRON_SCHEDULE || '0 */1 * * *', // Default: svakih sat vremena
   tempDir: process.env.TEMP_DIR || './temp',
   deleteAfterUpload: process.env.DELETE_AFTER_UPLOAD === 'true' || false,
-  lookbackHours: parseInt(process.env.LOOKBACK_HOURS || '24') // Koliko sati unazad tražimo nove fajlove
+  lookbackHours: parseInt(process.env.LOOKBACK_HOURS || '24'), // Koliko sati unazad tražimo nove fajlove
+  // Lista specifičnih fajlova koje želimo da obradimo
+  specificFiles: [
+    "5249OM0B22P00.jpg",
+    "5249OM0B22P01.jpg",
+    "5259OZ0H33A01.jpg"
+    // Dodajte više fajlova po potrebi
+  ]
 };
 
 // Kreiranje privremenog direktorijuma ako ne postoji
@@ -43,104 +47,98 @@ console.log(`MinIO konfiguracija: ${config.minio.endpoint}:${config.minio.port}`
 console.log(`Cronjob raspored: ${config.cronSchedule}`);
 console.log(`Pretraga fajlova do ${config.lookbackHours} sati unazad`);
 
-// Pomoćna funkcija za parsiranje rawModifiedAt formata
-function parseRawModifiedAt(rawDate) {
-  if (!rawDate) return null;
+// Promise wrapper za FTP listu
+function ftpList(client, path) {
+  return new Promise((resolve, reject) => {
+    client.list(path, (err, list) => {
+      if (err) reject(err);
+      else resolve(list);
+    });
+  });
+}
 
-  try {
-    // Format može biti "Mon DD YYYY" (npr. "Dec 11 2023") ili "Mon DD" (npr. "Mar 24")
-    const parts = rawDate.trim().split(' ');
-
-    // Ako imamo samo mesec i dan (bez godine)
-    if (parts.length === 2) {
-      const month = parts[0]; // Mesec kao string (npr. "Mar")
-      const day = parseInt(parts[1]); // Dan kao broj
-
-      // Meseci u engleskom jeziku
-      const months = {
-        'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
-        'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
-      };
-
-      // Dobijamo indeks meseca (0-11)
-      const monthIndex = months[month];
-
-      if (monthIndex !== undefined && !isNaN(day)) {
-        // Uzimamo tekuću godinu
-        const currentYear = new Date().getFullYear();
-
-        // Kreiramo datum sa trenutnom godinom
-        const date = new Date(currentYear, monthIndex, day);
-
-        // Provera validnosti
-        if (!isNaN(date.getTime())) {
-          return date;
-        }
+// Promise wrapper za FTP preuzimanje
+function ftpGet(client, remotePath, localPath) {
+  return new Promise((resolve, reject) => {
+    client.get(remotePath, (err, stream) => {
+      if (err) {
+        reject(err);
+        return;
       }
-    }
-    // Ako imamo mesec, dan i godinu
-    else if (parts.length === 3) {
-      const date = new Date(rawDate);
-      if (!isNaN(date.getTime())) {
-        return date;
-      }
-    }
 
-    // Ako prethodni pokušaji ne uspeju, pokušavamo još jedan način
-    const fullDateStr = parts.length === 2 ? `${rawDate} ${new Date().getFullYear()}` : rawDate;
-    const fallbackDate = new Date(fullDateStr);
-    if (!isNaN(fallbackDate.getTime())) {
-      return fallbackDate;
-    }
-  } catch (err) {
-    console.error(`Greška pri parsiranju rawModifiedAt: ${rawDate}`, err);
-  }
+      const writeStream = fs.createWriteStream(localPath);
+      stream.pipe(writeStream);
 
-  return null;
+      writeStream.on('finish', () => {
+        resolve(true);
+      });
+
+      writeStream.on('error', (err) => {
+        reject(err);
+      });
+    });
+  });
+}
+
+// Promise wrapper za FTP brisanje
+function ftpDelete(client, path) {
+  return new Promise((resolve, reject) => {
+    client.delete(path, (err) => {
+      if (err) reject(err);
+      else resolve(true);
+    });
+  });
+}
+
+// Promise wrapper za FTP konekciju
+function ftpConnect(config) {
+  return new Promise((resolve, reject) => {
+    const client = new FTPClient();
+
+    client.on('ready', () => {
+      resolve(client);
+    });
+
+    client.on('error', (err) => {
+      reject(err);
+    });
+
+    client.connect({
+      host: config.ftp.host,
+      port: config.ftp.port,
+      user: config.ftp.user,
+      password: config.ftp.password,
+      secure: config.ftp.secure
+    });
+  });
 }
 
 // Funkcija za proveru da li je fajl noviji od zadatog vremena
 function isFileRecent(file) {
-  // Parsiramo rawModifiedAt u Date objekat
-  const fileDate = parseRawModifiedAt(file.rawModifiedAt);
+  // Provera da li je file.date validna vrednost
+  if (!file.date) {
+    console.log(`Upozorenje: Fajl ${file.name} nema datum.`);
+    return false;
+  }
 
-  // Provera da li je fileDate validna vrednost
-  if (!fileDate || !(fileDate instanceof Date) || isNaN(fileDate.getTime())) {
-    //console.log(`Upozorenje: Nevažeći datum fajla ${file.name}:`, file.rawModifiedAt);
-    return false;  // Tretiramo nevažeće datume kao stare
+  const fileDate = new Date(file.date);
+  if (isNaN(fileDate.getTime())) {
+    console.log(`Upozorenje: Nevažeći datum fajla ${file.name}:`, file.date);
+    return false;
   }
 
   const now = new Date();
-  const lookbackTime = new Date(now.getTime() - (config.lookbackHours * 60 * 60 * 1000));
-
-  // Debugging info - otkomentarišite ako je potrebno
-  // console.log(`Fajl: ${file.name}`);
-  // console.log(`Sada: ${now.toISOString()}`);
-  // console.log(`Lookback granica: ${lookbackTime.toISOString()}`);
-  // console.log(`Datum fajla (rawModifiedAt): ${file.rawModifiedAt}`);
-  // console.log(`Parsirani datum fajla: ${fileDate.toISOString()}`);
-  // console.log(`Razlika u satima: ${(now - fileDate) / (1000 * 60 * 60)}`);
-
-  // Fajl je "skorašnji" ako je razlika u satima manja ili jednaka konfiguriranom broju sati
   const diffHours = (now - fileDate) / (1000 * 60 * 60);
-  return diffHours <= config.lookbackHours;
-}
 
-// Funkcija za preuzimanje fajla sa FTP servera
-async function downloadFromFtp(client, remoteFilePath, localFilePath) {
-  try {
-    await client.downloadTo(localFilePath, remoteFilePath);
-    return true;
-  } catch (err) {
-    console.error(`Greška pri preuzimanju fajla ${remoteFilePath}:`, err);
-    return false;
-  }
+  // Debugging info
+  // console.log(`Fajl: ${file.name}, Datum: ${fileDate.toISOString()}, Razlika: ${diffHours.toFixed(2)}h`);
+
+  return diffHours <= config.lookbackHours;
 }
 
 // Funkcija za otpremanje fajla na MinIO server
 async function uploadToMinio(localFilePath, fileName) {
   try {
-    // Koristimo direktno otpremanje putem MinIO klijenta
     console.log(`Otpremanje ${fileName} na MinIO...`);
     await uploadToMinioDirectly(localFilePath, fileName, config);
     console.log(`Fajl ${fileName} je uspešno otpremljen i obrađen`);
@@ -151,155 +149,160 @@ async function uploadToMinio(localFilePath, fileName) {
   }
 }
 
-// Test funkcija za proveru datuma fajlova
+// Funkcija za testiranje datuma fajlova
 async function testFileDates() {
   console.log("=== TEST DATUMA FAJLOVA ===");
-  const client = new ftp.Client();
-  client.ftp.verbose = false;
+  let client;
 
   try {
-    // Povezivanje na FTP server
-    await client.access({
-      host: config.ftp.host,
-      port: config.ftp.port,
-      user: config.ftp.user,
-      password: config.ftp.password,
-      secure: config.ftp.secure
-    });
-
+    client = await ftpConnect(config);
     console.log(`Uspešno povezan na FTP server ${config.ftp.host}`);
 
-    // Navigacija do traženog direktorijuma
-    await client.cd(config.ftp.remotePath);
-
-    // Dobavljanje liste fajlova
-    const fileList = await client.list();
-
+    // Listanje fajlova
+    const fileList = await ftpList(client, config.ftp.remotePath);
     console.log(`Pronađeno ${fileList.length} fajlova na FTP serveru`);
 
-    const specificFiles = [
-      "5249OM0B22P00.jpg",  // Zamenite ovo sa stvarnim imenima fajlova
-      "5259OZ0H13L00.jpg",
-      "5259OZ0H33A01.jpg"
-      // Dodajte još fajlova po potrebi
-    ];
+    // Testiramo nekoliko fajlova
+    const testFiles = fileList.filter(file => file.type === '-').slice(0, 5); // '-' označava fajl u ovoj biblioteci
 
-    const filesToProcess = fileList.filter(file =>
-        file.type === ftp.FileType.File && specificFiles.includes(file.name)
-    );
-
-    // Testiramo na nekoliko fajlova
-    //const testFiles = fileList.filter(file => file.type === ftp.FileType.File).slice(0, 5);
-    const now = new Date();
-
-    for (const file of filesToProcess) {
+    for (const file of testFiles) {
       console.log(`\nTestiranje fajla: ${file.name}`);
-      console.log(`rawModifiedAt: ${file.rawModifiedAt}, modifiedAt: ${file.modifiedAt}`);
+      console.log(`Datum: ${file.date}`);
 
-      // Probamo da parsiramo rawModifiedAt
-      const parsedRawDate = parseRawModifiedAt(file.rawModifiedAt);
-      console.log(`Parsirani rawModifiedAt: ${parsedRawDate ? parsedRawDate.toISOString() : 'nije dostupan'}`);
+      const fileDate = new Date(file.date);
+      console.log(`Parsirani datum: ${fileDate.toISOString()}`);
 
-      if (parsedRawDate) {
-        const diffHours = (now - parsedRawDate) / (1000 * 60 * 60);
-        console.log(`Razlika u satima: ${diffHours.toFixed(2)}h`);
-        console.log(`Granica u satima: ${config.lookbackHours}h`);
-        console.log(`Da li je recent: ${diffHours <= config.lookbackHours}`);
-      }
+      const now = new Date();
+      const diffHours = (now - fileDate) / (1000 * 60 * 60);
+      console.log(`Razlika u satima: ${diffHours.toFixed(2)}h`);
+      console.log(`Granica u satima: ${config.lookbackHours}h`);
+      console.log(`Da li je recent: ${diffHours <= config.lookbackHours}`);
     }
 
   } catch (err) {
     console.error('Greška pri testiranju datuma fajlova:', err);
   } finally {
-    client.close();
+    if (client) client.end();
+  }
+}
+
+// Funkcija za sinhronizaciju specifičnih fajlova
+async function syncSpecificFiles() {
+  console.log(`Pokretanje sinhronizacije specifičnih fajlova u ${new Date().toLocaleString()}...`);
+  let client;
+
+  try {
+    client = await ftpConnect(config);
+    console.log(`Uspešno povezan na FTP server ${config.ftp.host}`);
+
+    // Listanje fajlova
+    const fileList = await ftpList(client, config.ftp.remotePath);
+    console.log(`Pronađeno ${fileList.length} fajlova na FTP serveru`);
+
+    // Filtriramo specifične fajlove
+    const filesToProcess = fileList.filter(file =>
+        file.type === '-' && // '-' označava fajl u ovoj biblioteci
+        config.specificFiles.includes(file.name)
+    );
+
+    console.log(`Obrađujem ${filesToProcess.length} specifičnih fajlova: ${config.specificFiles.join(', ')}`);
+
+    // Obrada svakog fajla
+    for (const file of filesToProcess) {
+      const remotePath = path.posix.join(config.ftp.remotePath, file.name);
+      const localPath = path.join(config.tempDir, file.name);
+
+      console.log(`Obrada fajla: ${file.name}`);
+
+      try {
+        // Preuzimanje fajla
+        await ftpGet(client, file.name, localPath);
+        console.log(`Fajl ${file.name} uspešno preuzet`);
+
+        // Otpremanje na MinIO
+        const uploadSuccess = await uploadToMinio(localPath, file.name);
+
+        // Brisanje lokalne kopije
+        if (fs.existsSync(localPath)) {
+          fs.unlinkSync(localPath);
+          console.log(`Lokalna kopija ${localPath} obrisana`);
+        }
+
+        // Brisanje fajla sa FTP servera ako je tako konfigurisano
+        if (config.deleteAfterUpload && uploadSuccess) {
+          await ftpDelete(client, file.name);
+          console.log(`Fajl ${file.name} obrisan sa FTP servera`);
+        }
+      } catch (err) {
+        console.error(`Greška pri obradi fajla ${file.name}:`, err);
+      }
+    }
+
+    console.log(`Sinhronizacija specifičnih fajlova završena u ${new Date().toLocaleString()}`);
+  } catch (err) {
+    console.error('Greška pri sinhronizaciji:', err);
+  } finally {
+    if (client) client.end();
   }
 }
 
 // Glavna funkcija za sinhronizaciju
 async function syncFtpToMinio() {
   console.log(`Pokretanje sinhronizacije u ${new Date().toLocaleString()}...`);
-  const client = new ftp.Client();
-  client.ftp.verbose = false; // Postavi na true za debugging
+  let client;
 
   try {
-    // Povezivanje na FTP server
-    await client.access({
-      host: config.ftp.host,
-      port: config.ftp.port,
-      user: config.ftp.user,
-      password: config.ftp.password,
-      secure: config.ftp.secure
-    });
-
+    client = await ftpConnect(config);
     console.log(`Uspešno povezan na FTP server ${config.ftp.host}`);
 
-    // Navigacija do traženog direktorijuma
-    await client.cd(config.ftp.remotePath);
-
-    // Dobavljanje liste fajlova
-    const fileList = await client.list();
-
+    // Listanje fajlova
+    const fileList = await ftpList(client, config.ftp.remotePath);
     console.log(`Pronađeno ${fileList.length} fajlova na FTP serveru`);
 
-    // Debug ispis za sve fajlove (otkomentarisati ako je potrebno)
-    // console.log("Fileinfo za sve fajlove:");
-    // fileList.forEach(file => {
-    //   console.log(`Fajl: ${file.name}, Tip: ${file.type}, rawModifiedAt: ${file.rawModifiedAt}`);
-    // });
-
-    // Filtriranje samo novijih fajlova i isključivanje direktorijuma
-    const recentFiles = fileList.filter(file => {
-      const isFile = file.type === ftp.FileType.File;
-      const isRecent = isFileRecent(file);
-
-      // Debugging (otkomentarisati ako je potrebno)
-      // if (isFile) {
-      //   console.log(`Fajl: ${file.name}, Je fajl: ${isFile}, Je skorašnji: ${isRecent}`);
-      // }
-
-      return isFile && isRecent;
-    });
+    // Filtriranje samo novijih fajlova
+    const recentFiles = fileList.filter(file =>
+        file.type === '-' && // '-' označava fajl u ovoj biblioteci
+        isFileRecent(file)
+    );
 
     console.log(`Od toga, ${recentFiles.length} fajlova je novije od ${config.lookbackHours} sati`);
 
     // Obrada svakog fajla
     for (const file of recentFiles) {
-      const remoteFilePath = path.posix.join(config.ftp.remotePath, file.name);
-      const localFilePath = path.join(config.tempDir, file.name);
+      const remotePath = path.posix.join(config.ftp.remotePath, file.name);
+      const localPath = path.join(config.tempDir, file.name);
 
       console.log(`Obrada fajla: ${file.name}`);
 
-      // Preuzimanje fajla sa FTP servera
-      const downloadSuccess = await downloadFromFtp(client, file.name, localFilePath);
+      try {
+        // Preuzimanje fajla
+        await ftpGet(client, file.name, localPath);
+        console.log(`Fajl ${file.name} uspešno preuzet`);
 
-      if (downloadSuccess) {
         // Otpremanje na MinIO
-        const uploadSuccess = await uploadToMinio(localFilePath, file.name);
+        const uploadSuccess = await uploadToMinio(localPath, file.name);
 
         // Brisanje lokalne kopije
-        if (fs.existsSync(localFilePath)) {
-          fs.unlinkSync(localFilePath);
-          console.log(`Lokalna kopija ${localFilePath} obrisana`);
+        if (fs.existsSync(localPath)) {
+          fs.unlinkSync(localPath);
+          console.log(`Lokalna kopija ${localPath} obrisana`);
         }
 
-        // Brisanje fajla sa FTP servera ako je konfiguracija tako postavljena
+        // Brisanje fajla sa FTP servera ako je tako konfigurisano
         if (config.deleteAfterUpload && uploadSuccess) {
-          try {
-            await client.remove(file.name);
-            console.log(`Fajl ${file.name} obrisan sa FTP servera`);
-          } catch (err) {
-            console.error(`Greška pri brisanju fajla ${file.name} sa FTP servera:`, err);
-          }
+          await ftpDelete(client, file.name);
+          console.log(`Fajl ${file.name} obrisan sa FTP servera`);
         }
+      } catch (err) {
+        console.error(`Greška pri obradi fajla ${file.name}:`, err);
       }
     }
 
     console.log(`Sinhronizacija završena u ${new Date().toLocaleString()}`);
   } catch (err) {
     console.error('Greška pri sinhronizaciji:', err);
-    throw err; // Re-throw error za handling izvan funkcije
   } finally {
-    client.close();
+    if (client) client.end();
   }
 }
 
@@ -307,6 +310,9 @@ async function syncFtpToMinio() {
 if (process.argv.includes('--test-dates')) {
   console.log('Pokretanje testa datuma fajlova...');
   testFileDates().catch(err => console.error('Greška pri testiranju datuma:', err));
+} else if (process.argv.includes('--sync-specific')) {
+  console.log('Pokretanje sinhronizacije specifičnih fajlova...');
+  syncSpecificFiles().catch(err => console.error('Greška pri sinhronizaciji specifičnih fajlova:', err));
 } else if (process.argv.includes('--sync-now')) {
   console.log('Pokretanje ručne sinhronizacije...');
   syncFtpToMinio().catch(err => console.error('Greška pri ručnoj sinhronizaciji:', err));
@@ -328,13 +334,16 @@ if (process.argv.includes('--test-dates')) {
 // Upravljanje zatvaranjem programa
 process.on('SIGINT', async () => {
   console.log('Primljen signal za zaustavljanje...');
-  job.stop();
-  console.log('Cron job zaustavljen');
+  if (typeof job !== 'undefined') {
+    job.stop();
+    console.log('Cron job zaustavljen');
+  }
   process.exit(0);
 });
 
-// Eksportujemo funkciju za ručno pokretanje
+// Eksportujemo funkcije za ručno pokretanje
 module.exports = {
   syncFtpToMinio,
+  syncSpecificFiles,
   testFileDates
 };
