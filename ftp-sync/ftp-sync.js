@@ -294,6 +294,98 @@ async function syncFtpToMinio() {
   }
 }
 
+async function checkFtpDates() {
+  console.log("=== PROVERA DATUMA FTP FAJLOVA ===");
+  const client = new ftp.Client();
+  client.ftp.verbose = true; // Uključujemo detaljan ispis za debugging
+
+  try {
+    // Povezivanje na FTP server
+    await client.access({
+      host: config.ftp.host,
+      port: config.ftp.port,
+      user: config.ftp.user,
+      password: config.ftp.password,
+      secure: config.ftp.secure
+    });
+
+    console.log(`Uspešno povezan na FTP server ${config.ftp.host}`);
+
+    // Navigacija do traženog direktorijuma
+    await client.cd(config.ftp.remotePath);
+
+    // Dobavljanje liste fajlova
+    console.log("Dobavljanje liste fajlova...");
+    const fileList = await client.list();
+
+    // Ispisujemo sirove podatke za prvih nekoliko fajlova
+    console.log("\nSirovi podaci za prvih 5 fajlova:");
+    fileList.slice(0, 5).forEach((file, index) => {
+      console.log(`\nFajl #${index + 1}: ${file.name}`);
+      console.log("Kompletni podaci objekta:");
+      console.log(file);
+
+      // Detaljnija analiza datuma
+      if (file.modifiedAt) {
+        console.log("\nAnaliza datuma modifikacije:");
+        console.log(`- Tip: ${typeof file.modifiedAt}`);
+        console.log(`- instanceof Date: ${file.modifiedAt instanceof Date}`);
+        console.log(`- Vrednost: ${String(file.modifiedAt)}`);
+
+        if (file.modifiedAt instanceof Date) {
+          console.log(`- getTime: ${file.modifiedAt.getTime()}`);
+          console.log(`- toISOString: ${file.modifiedAt.toISOString()}`);
+          console.log(`- toLocaleString: ${file.modifiedAt.toLocaleString()}`);
+          console.log(`- Vremenska zona (offset u minutima): ${file.modifiedAt.getTimezoneOffset()}`);
+        }
+      } else {
+        console.log("\nFajl nema definisan modifiedAt property.");
+      }
+    });
+
+    // Probamo direktno da dobijemo podatke o jednom fajlu
+    if (fileList.length > 0) {
+      const sampleFile = fileList[0];
+      console.log(`\nProbamo da dobijemo više informacija o fajlu: ${sampleFile.name}`);
+
+      try {
+        // MLST komanda može dati detaljnije informacije
+        const details = await client.send(`MLST ${sampleFile.name}`);
+        console.log("MLST rezultat:");
+        console.log(details);
+      } catch (mlstErr) {
+        console.error("Greška pri MLST komandi:", mlstErr.message);
+        console.log("MLST komanda nije podržana na ovom serveru.");
+      }
+
+      try {
+        // MDTM komanda za dobijanje tačnog vremena modifikacije
+        const modTime = await client.send(`MDTM ${sampleFile.name}`);
+        console.log("MDTM rezultat:");
+        console.log(modTime);
+      } catch (mdtmErr) {
+        console.error("Greška pri MDTM komandi:", mdtmErr.message);
+        console.log("MDTM komanda nije podržana na ovom serveru.");
+      }
+    }
+
+    // Pokušaj alternativnog načina dobijanja datuma - preko raw lista
+    console.log("\nAlternativni način dobijanja datuma - raw lista:");
+    client.ftp.log = console.log; // Direktno logovanje FTP komunikacije
+    const rawList = await client.send("LIST");
+    console.log("Raw LIST rezultat:");
+    console.log(rawList);
+
+  } catch (err) {
+    console.error('Greška pri proveri FTP datuma:', err);
+  } finally {
+    client.close();
+  }
+}
+
+// Pokrenite ovu funkciju za detaljnu analizu datuma
+checkFtpDates().catch(err => console.error('Greška:', err));
+
 // Prvo pokrećemo test funkciju
 testSpecificFileDocker().catch(err => console.error('Greška pri testiranju specifičnog fajla u Docker-u:', err));
 
@@ -321,6 +413,7 @@ process.on('SIGINT', async () => {
 // Eksportujemo funkciju za ručno pokretanje
 module.exports = {
   syncFtpToMinio,
-  testSpecificFileDocker
+  testSpecificFileDocker,
+  checkFtpDates
 
 };
