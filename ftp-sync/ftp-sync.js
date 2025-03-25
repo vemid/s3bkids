@@ -206,6 +206,7 @@ async function testSpecificFileDocker() {
 
 // Glavna funkcija za sinhronizaciju
 async function syncFtpToMinio() {
+  testSpecificFileDocker().catch(err => console.error('Greška pri testiranju specifičnog fajla u Docker-u:', err));
   console.log(`Pokretanje sinhronizacije u ${new Date().toLocaleString()}...`);
   const client = new ftp.Client();
   client.ftp.verbose = false; // Postavi na true za debugging
