@@ -45,22 +45,27 @@ console.log(`Pretraga fajlova do ${config.lookbackHours} sati unazad`);
 
 // Funkcija za proveru da li je fajl noviji od zadatog vremena
 function isFileRecent(fileDate) {
-  // Provera da li je fileDate validna vrednost
   if (!fileDate || !(fileDate instanceof Date) || isNaN(fileDate.getTime())) {
     //console.log(`Upozorenje: Nevažeći datum fajla:`, fileDate);
-    return false;  // Tretiramo nevažeće datume kao stare
+    return false;
   }
 
   const now = new Date();
-  now.setDate(now.getDate() + 1);
-  const lookbackTime = new Date(now.getTime() - (config.lookbackHours * 60 * 60 * 1000));
-  
-  // console.log(`Sada: ${now.toISOString()}`);
-  // console.log(`Lookback granica: ${lookbackTime.toISOString()}`);
-  // console.log(`Datum fajla: ${fileDate.toISOString()}`);
-  // console.log(`Razlika u satima: ${(now - fileDate) / (1000 * 60 * 60)}`);
-  
-  return fileDate > lookbackTime;
+
+  // Uzmi samo datum bez vremena
+  const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterdayDate = new Date(todayDate);
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+
+  const fileOnlyDate = new Date(fileDate.getFullYear(), fileDate.getMonth(), fileDate.getDate());
+
+  // Proveri da li je datum fajla danas ili juče
+  const isToday = fileOnlyDate.getTime() === todayDate.getTime();
+  const isYesterday = fileOnlyDate.getTime() === yesterdayDate.getTime();
+
+  console.log(`Datum fajla: ${fileDate.toISOString()}, Danas: ${isToday}, Juče: ${isYesterday}`);
+
+  return isToday || isYesterday;
 }
 
 // Funkcija za preuzimanje fajla sa FTP servera
