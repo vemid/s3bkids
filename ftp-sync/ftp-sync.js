@@ -29,7 +29,7 @@ const config = {
   cronSchedule: process.env.CRON_SCHEDULE || '0 */1 * * *', // Default: svakih sat vremena
   tempDir: process.env.TEMP_DIR || './temp',
   deleteAfterUpload: process.env.DELETE_AFTER_UPLOAD === 'true' || false,
-  lookbackHours: parseInt(process.env.LOOKBACK_HOURS || '24') // Koliko sati unazad tražimo nove fajlove
+  lookbackHours: parseInt(process.env.LOOKBACK_HOURS || '48') // Koliko sati unazad tražimo nove fajlove
 };
 
 // Kreiranje privremenog direktorijuma ako ne postoji
@@ -43,25 +43,23 @@ console.log(`MinIO konfiguracija: ${config.minio.endpoint}:${config.minio.port}`
 console.log(`Cronjob raspored: ${config.cronSchedule}`);
 console.log(`Pretraga fajlova do ${config.lookbackHours} sati unazad`);
 
-// Funkcija za proveru da li je fajl noviji od zadatog vremena
+// POBOLJŠANA: Funkcija za proveru da li je fajl noviji od zadatog vremena
 function isFileRecent(fileDate) {
   // Provera da li je fileDate validna vrednost
   if (!fileDate || !(fileDate instanceof Date) || isNaN(fileDate.getTime())) {
-    //console.log(`Upozorenje: Nevažeći datum fajla:`, fileDate);
+    console.log(`Upozorenje: Nevažeći datum fajla:`, fileDate);
     return false;  // Tretiramo nevažeće datume kao stare
   }
 
+  // Direktno računamo razliku u satima
   const now = new Date();
-  const lookbackTime = new Date(now.getTime() - (config.lookbackHours * 60 * 60 * 1000));
+  const diffHours = (now - fileDate) / (1000 * 60 * 60);
 
   // Debugging info - otkomentarišite ako je potrebno
-  // console.log(`Sada: ${now.toISOString()}`);
-  // console.log(`Lookback granica: ${lookbackTime.toISOString()}`);
-  // console.log(`Datum fajla: ${fileDate.toISOString()}`);
-  // console.log(`Razlika u satima: ${(now - fileDate) / (1000 * 60 * 60)}`);
+  // console.log(`Fajl datum: ${fileDate.toISOString()}, razlika: ${diffHours.toFixed(2)}h, granica: ${config.lookbackHours}h`);
 
-  // Fajl je "skorašnji" ako je modifikovan nakon lookbackTime, a pre ili jednako trenutnom vremenu
-  return fileDate >= lookbackTime && fileDate <= now;
+  // Fajl je "skorašnji" ako je razlika manja ili jednaka konfiguriranom broju sati
+  return diffHours <= config.lookbackHours;
 }
 
 // Funkcija za preuzimanje fajla sa FTP servera
@@ -89,12 +87,12 @@ async function uploadToMinio(localFilePath, fileName) {
   }
 }
 
-// Glavna funkcija za sinhronizaciju
-async function syncFtpToMinio() {
-  console.log(`Pokretanje sinhronizacije u ${new Date().toLocaleString()}...`);
+// NOVO: Test funkcija za proveru specifičnog fajla
+async function testSpecificFileDocker() {
+  console.log("=== TEST SPECIFIČNOG FAJLA U DOCKER-u ===");
   const client = new ftp.Client();
-  client.ftp.verbose = false; // Postavi na true za debugging
-  
+  client.ftp.verbose = false;
+
   try {
     // Povezivanje na FTP server
     await client.access({
@@ -104,57 +102,177 @@ async function syncFtpToMinio() {
       password: config.ftp.password,
       secure: config.ftp.secure
     });
-    
+
     console.log(`Uspešno povezan na FTP server ${config.ftp.host}`);
-    
+
     // Navigacija do traženog direktorijuma
     await client.cd(config.ftp.remotePath);
-    
+
     // Dobavljanje liste fajlova
     const fileList = await client.list();
-    
-    console.log(`Pronađeno ${fileList.length} fajlova na FTP serveru`);
-    
-    // Debug ispis za sve fajlove
-    console.log("Fileinfo za sve fajlove:");
-    fileList.forEach(file => {
-      // console.log(`Fajl: ${file.name}, Tip: ${file.type}, Datum: ${file.modifiedAt}, Validan datum: ${file.modifiedAt instanceof Date}`);
+
+    // Tražimo specifični fajl
+    const specificFile = fileList.find(file => file.name === "5249OM0B22P00.jpg");
+
+    if (specificFile) {
+      console.log("Pronađen specifični fajl:");
+      console.log(`Ime fajla: ${specificFile.name}`);
+      console.log(`Tip fajla: ${specificFile.type}`);
+
+      // Ispisujemo više informacija o datumu
+      const fileDate = specificFile.modifiedAt;
+      console.log(`\nDatum modifikacije (lokalno vreme): ${fileDate.toLocaleString()}`);
+      console.log(`Datum modifikacije (ISO): ${fileDate.toISOString()}`);
+      console.log(`Datum modifikacije (Unix timestamp): ${fileDate.getTime()}`);
+      console.log(`Vremenska zona (offset u minutima): ${fileDate.getTimezoneOffset()}`);
+
+      // Ispisujemo informacije o trenutnom vremenu Docker kontejnera
+      const now = new Date();
+      console.log(`\nDocker trenutno vreme (lokalno): ${now.toLocaleString()}`);
+      console.log(`Docker trenutno vreme (ISO): ${now.toISOString()}`);
+      console.log(`Docker trenutno vreme (Unix timestamp): ${now.getTime()}`);
+      console.log(`Docker vremenska zona (offset u minutima): ${now.getTimezoneOffset()}`);
+
+      // Provera razlike u satima
+      const diffHours = (now - fileDate) / (1000 * 60 * 60);
+      console.log(`\nRazlika u satima između trenutnog vremena i datuma fajla: ${diffHours.toFixed(2)}h`);
+      console.log(`Podešena granica u konfiguraciji: ${config.lookbackHours}h`);
+      console.log(`Da li je fajl noviji od granice (diffHours <= lookbackHours): ${diffHours <= config.lookbackHours}`);
+
+      // Testiranje različitih implementacija
+      const implementacije = [
+        {
+          naziv: "Originalna (lookbackTime, fileDate >= lookback)",
+          funkcija: (fDate) => {
+            const n = new Date();
+            const lookback = new Date(n.getTime() - (config.lookbackHours * 60 * 60 * 1000));
+            return fDate >= lookback && fDate <= n;
+          }
+        },
+        {
+          naziv: "Nova (direktno poređenje razlike u satima)",
+          funkcija: (fDate) => {
+            const n = new Date();
+            const diffHr = (n - fDate) / (1000 * 60 * 60);
+            return diffHr <= config.lookbackHours;
+          }
+        }
+      ];
+
+      console.log("\nRezultati različitih implementacija:");
+      for (const impl of implementacije) {
+        const rezultat = impl.funkcija(fileDate);
+        console.log(`- ${impl.naziv}: ${rezultat ? "RECENT" : "NOT RECENT"}`);
+      }
+
+      // Proveravamo sve fajlove u poslednjih X sati
+      const recentFilesByDiff = fileList.filter(file => {
+        if (file.type !== ftp.FileType.File || !file.modifiedAt || !(file.modifiedAt instanceof Date)) {
+          return false;
+        }
+        const diffHr = (now - file.modifiedAt) / (1000 * 60 * 60);
+        return diffHr <= config.lookbackHours;
+      });
+
+      console.log(`\nBroj fajlova u poslednjih ${config.lookbackHours} sati (direktno poređenje): ${recentFilesByDiff.length}`);
+      if (recentFilesByDiff.length <= 10) {
+        console.log("Lista tih fajlova:");
+        recentFilesByDiff.forEach(file => {
+          const diffHr = (now - file.modifiedAt) / (1000 * 60 * 60);
+          console.log(`- ${file.name} (${file.modifiedAt.toLocaleString()}, pre ${diffHr.toFixed(2)}h)`);
+        });
+      }
+
+    } else {
+      console.log(`Fajl 5249OM0B22P00.jpg nije pronađen na FTP serveru.`);
+
+      // Ako specifični fajl nije pronađen, ispisujemo prvih 10 fajlova za reference
+      console.log("\nPrvih 10 fajlova na serveru za referencu:");
+      fileList.slice(0, 10).forEach(file => {
+        if (file.modifiedAt && file.modifiedAt instanceof Date) {
+          console.log(`- ${file.name} (${file.modifiedAt.toLocaleString()})`);
+        } else {
+          console.log(`- ${file.name} (nema validnog datuma)`);
+        }
+      });
+    }
+
+  } catch (err) {
+    console.error('Greška pri testiranju specifičnog fajla:', err);
+  } finally {
+    client.close();
+  }
+}
+
+// Glavna funkcija za sinhronizaciju
+async function syncFtpToMinio() {
+  console.log(`Pokretanje sinhronizacije u ${new Date().toLocaleString()}...`);
+  const client = new ftp.Client();
+  client.ftp.verbose = false; // Postavi na true za debugging
+
+  try {
+    // Povezivanje na FTP server
+    await client.access({
+      host: config.ftp.host,
+      port: config.ftp.port,
+      user: config.ftp.user,
+      password: config.ftp.password,
+      secure: config.ftp.secure
     });
-    
+
+    console.log(`Uspešno povezan na FTP server ${config.ftp.host}`);
+
+    // Navigacija do traženog direktorijuma
+    await client.cd(config.ftp.remotePath);
+
+    // Dobavljanje liste fajlova
+    const fileList = await client.list();
+
+    console.log(`Pronađeno ${fileList.length} fajlova na FTP serveru`);
+
+    // Debug ispis za sve fajlove (otkomentarisati ako je potrebno)
+    // console.log("Fileinfo za sve fajlove:");
+    // fileList.forEach(file => {
+    //   console.log(`Fajl: ${file.name}, Tip: ${file.type}, Datum: ${file.modifiedAt}, Validan datum: ${file.modifiedAt instanceof Date}`);
+    // });
+
     // Filtriranje samo novijih fajlova i isključivanje direktorijuma
-   const recentFiles = fileList.filter(file => {
-     const isFile = file.type === ftp.FileType.File;
-     const isRecent = isFileRecent(file.modifiedAt);
-     //const isSpecificFile = file.name.startsWith('5259OZ0H33A01');
-  
-     // console.log(`Fajl: ${file.name}, Je fajl: ${isFile}, Je skorašnji: ${isRecent}, Je specifičan fajl: ${isSpecificFile}`);
-  
-  // Uzimamo ili novije fajlove ili specifični fajl koji tražimo
-     return isFile && (isRecent);
-   });
-    
+    const recentFiles = fileList.filter(file => {
+      const isFile = file.type === ftp.FileType.File;
+      const isRecent = isFileRecent(file.modifiedAt);
+
+      // Debugging (otkomentarisati ako je potrebno)
+      // if (isFile) {
+      //   const now = new Date();
+      //   const diffHours = (now - file.modifiedAt) / (1000 * 60 * 60);
+      //   console.log(`Fajl: ${file.name}, Je fajl: ${isFile}, Je skorašnji: ${isRecent}, Razlika u satima: ${diffHours.toFixed(2)}`);
+      // }
+
+      return isFile && isRecent;
+    });
+
     console.log(`Od toga, ${recentFiles.length} fajlova je novije od ${config.lookbackHours} sati`);
-    
+
     // Obrada svakog fajla
     for (const file of recentFiles) {
       const remoteFilePath = path.posix.join(config.ftp.remotePath, file.name);
       const localFilePath = path.join(config.tempDir, file.name);
-      
+
       console.log(`Obrada fajla: ${file.name}`);
-      
+
       // Preuzimanje fajla sa FTP servera
       const downloadSuccess = await downloadFromFtp(client, file.name, localFilePath);
-      
+
       if (downloadSuccess) {
         // Otpremanje na MinIO
         const uploadSuccess = await uploadToMinio(localFilePath, file.name);
-        
+
         // Brisanje lokalne kopije
         if (fs.existsSync(localFilePath)) {
           fs.unlinkSync(localFilePath);
           console.log(`Lokalna kopija ${localFilePath} obrisana`);
         }
-        
+
         // Brisanje fajla sa FTP servera ako je konfiguracija tako postavljena
         if (config.deleteAfterUpload && uploadSuccess) {
           try {
@@ -166,7 +284,7 @@ async function syncFtpToMinio() {
         }
       }
     }
-    
+
     console.log(`Sinhronizacija završena u ${new Date().toLocaleString()}`);
   } catch (err) {
     console.error('Greška pri sinhronizaciji:', err);
@@ -176,10 +294,13 @@ async function syncFtpToMinio() {
   }
 }
 
+// Prvo pokrećemo test funkciju
+testSpecificFileDocker().catch(err => console.error('Greška pri testiranju specifičnog fajla u Docker-u:', err));
+
 // Prva sinhronizacija pri pokretanju
 setTimeout(() => {
   syncFtpToMinio().catch(err => console.error('Greška pri inicijalnoj sinhronizaciji:', err));
-}, 5000);  // Sačekaj 5 sekundi pre prve sinhronizacije
+}, 10000);  // Sačekaj 10 sekundi pre prve sinhronizacije (produženo zbog testa)
 
 // Kreiranje cron job-a za periodičnu sinhronizaciju
 const job = new CronJob(config.cronSchedule, function() {
