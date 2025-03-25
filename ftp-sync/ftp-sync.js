@@ -133,67 +133,7 @@ async function uploadToMinio(localFilePath, fileName) {
 }
 
 // Test funkcija za proveru datuma fajlova
-async function testFileDates() {
-  console.log("=== TEST DATUMA FAJLOVA ===");
-  const client = new ftp.Client();
-  client.ftp.verbose = false;
-
-  try {
-    // Povezivanje na FTP server
-    await client.access({
-      host: config.ftp.host,
-      port: config.ftp.port,
-      user: config.ftp.user,
-      password: config.ftp.password,
-      secure: config.ftp.secure
-    });
-
-    console.log(`Uspešno povezan na FTP server ${config.ftp.host}`);
-
-    // Navigacija do traženog direktorijuma
-    await client.cd(config.ftp.remotePath);
-
-    // Dobavljanje liste fajlova
-    const fileList = await client.list();
-
-    console.log(`Pronađeno ${fileList.length} fajlova na FTP serveru`);
-
-    // Testiramo na nekoliko fajlova
-    const testFiles = fileList.slice(0, 5);
-    const now = new Date();
-
-    for (const file of testFiles) {
-      console.log(`\nTestiranje fajla: ${file.name}`);
-      console.log(`rawModifiedAt: ${file.rawModifiedAt}, modifiedAt: ${file.modifiedAt}`);
-
-      // Probamo da dobijemo datum iz MDTM
-      const mdtmDate = await getFileModificationTime(client, file.name);
-      console.log(`MDTM datum: ${mdtmDate ? mdtmDate.toISOString() : 'nije dostupan'}`);
-
-      // Probamo da parsiramo rawModifiedAt
-      const parsedRawDate = parseRawModifiedAt(file.rawModifiedAt);
-      console.log(`Parsirani rawModifiedAt: ${parsedRawDate ? parsedRawDate.toISOString() : 'nije dostupan'}`);
-
-      // Testiramo različite datume za recentness
-      if (mdtmDate) {
-        const diffHours = (now - mdtmDate) / (1000 * 60 * 60);
-        console.log(`MDTM - Razlika u satima: ${diffHours.toFixed(2)}h, Da li je recent: ${diffHours <= config.lookbackHours}`);
-      }
-
-      if (parsedRawDate) {
-        const diffHours = (now - parsedRawDate) / (1000 * 60 * 60);
-        console.log(`rawModifiedAt - Razlika u satima: ${diffHours.toFixed(2)}h, Da li je recent: ${diffHours <= config.lookbackHours}`);
-      }
-    }
-
-  } catch (err) {
-    console.error('Greška pri testiranju datuma fajlova:', err);
-  } finally {
-    client.close();
-  }
-}
-
-// Glavna funkcija za sinhronizaciju
+// Glavna funkcija za sinhronizaciju - ispravljena verzija
 async function syncFtpToMinio() {
   console.log(`Pokretanje sinhronizacije u ${new Date().toLocaleString()}...`);
   const client = new ftp.Client();
@@ -219,31 +159,44 @@ async function syncFtpToMinio() {
 
     console.log(`Pronađeno ${fileList.length} fajlova na FTP serveru`);
 
-    // Pripremamo procesirane fajlove sa validnim datumima
-    const processedFiles = await Promise.all(
-        fileList.filter(file => file.type === ftp.FileType.File).map(async file => {
-          // Prioritet: 1) MDTM datum 2) parsirani rawModifiedAt 3) modifiedAt
-          let fileDate = null;
+    // Filtriramo prvo samo fajlove (ne direktorijume)
+    const onlyFiles = fileList.filter(file => file.type === ftp.FileType.File);
+    console.log(`Od toga, ${onlyFiles.length} su fajlovi (nisu direktorijumi)`);
 
-          // 1. Probamo MDTM komandu
+    // Obrađujemo fajlove jedan po jedan (sekvencijalno)
+    const processedFiles = [];
+
+    for (const file of onlyFiles) {
+      try {
+        // Prioritet: 1) MDTM datum 2) parsirani rawModifiedAt 3) modifiedAt
+        let fileDate = null;
+
+        // 1. Probamo MDTM komandu
+        try {
           fileDate = await getFileModificationTime(client, file.name);
+        } catch (mdtmErr) {
+          console.log(`Nije moguće dobiti MDTM za ${file.name}: ${mdtmErr.message}`);
+        }
 
-          // 2. Ako MDTM ne radi, probamo rawModifiedAt
-          if (!fileDate) {
-            fileDate = parseRawModifiedAt(file.rawModifiedAt);
-          }
+        // 2. Ako MDTM ne radi, probamo rawModifiedAt
+        if (!fileDate) {
+          fileDate = parseRawModifiedAt(file.rawModifiedAt);
+        }
 
-          // 3. Ako ni to ne radi, probamo regularni modifiedAt
-          if (!fileDate && file.modifiedAt) {
-            fileDate = file.modifiedAt;
-          }
+        // 3. Ako ni to ne radi, probamo regularni modifiedAt
+        if (!fileDate && file.modifiedAt) {
+          fileDate = file.modifiedAt;
+        }
 
-          return {
-            ...file,
-            processedDate: fileDate
-          };
-        })
-    );
+        processedFiles.push({
+          ...file,
+          processedDate: fileDate
+        });
+      } catch (err) {
+        console.error(`Greška pri obradi fajla ${file.name}:`, err);
+        // Nastavljamo sa sledećim fajlom
+      }
+    }
 
     // Filtriranje samo novijih fajlova
     const recentFiles = processedFiles.filter(file => {
@@ -253,7 +206,7 @@ async function syncFtpToMinio() {
 
     console.log(`Od toga, ${recentFiles.length} fajlova je novije od ${config.lookbackHours} sati`);
 
-    // Obrada svakog fajla
+    // Obrada svakog fajla za sinhronizaciju
     for (const file of recentFiles) {
       const remoteFilePath = path.posix.join(config.ftp.remotePath, file.name);
       const localFilePath = path.join(config.tempDir, file.name);
@@ -294,6 +247,72 @@ async function syncFtpToMinio() {
   }
 }
 
+// Popravljena funkcija za test datuma
+async function testFileDates() {
+  console.log("=== TEST DATUMA FAJLOVA ===");
+  const client = new ftp.Client();
+  client.ftp.verbose = false;
+
+  try {
+    // Povezivanje na FTP server
+    await client.access({
+      host: config.ftp.host,
+      port: config.ftp.port,
+      user: config.ftp.user,
+      password: config.ftp.password,
+      secure: config.ftp.secure
+    });
+
+    console.log(`Uspešno povezan na FTP server ${config.ftp.host}`);
+
+    // Navigacija do traženog direktorijuma
+    await client.cd(config.ftp.remotePath);
+
+    // Dobavljanje liste fajlova
+    const fileList = await client.list();
+
+    console.log(`Pronađeno ${fileList.length} fajlova na FTP serveru`);
+
+    // Testiramo na nekoliko fajlova (samo fajlove, ne direktorijume)
+    const testFiles = fileList.filter(file => file.type === ftp.FileType.File).slice(0, 5);
+    const now = new Date();
+
+    // Obrađujemo jedan po jedan fajl (sekvencijalno)
+    for (const file of testFiles) {
+      console.log(`\nTestiranje fajla: ${file.name}`);
+      console.log(`rawModifiedAt: ${file.rawModifiedAt}, modifiedAt: ${file.modifiedAt}`);
+
+      // Probamo da dobijemo datum iz MDTM
+      let mdtmDate = null;
+      try {
+        mdtmDate = await getFileModificationTime(client, file.name);
+        console.log(`MDTM datum: ${mdtmDate ? mdtmDate.toISOString() : 'nije dostupan'}`);
+      } catch (mdtmErr) {
+        console.log(`Greška pri MDTM za ${file.name}: ${mdtmErr.message}`);
+      }
+
+      // Probamo da parsiramo rawModifiedAt
+      const parsedRawDate = parseRawModifiedAt(file.rawModifiedAt);
+      console.log(`Parsirani rawModifiedAt: ${parsedRawDate ? parsedRawDate.toISOString() : 'nije dostupan'}`);
+
+      // Testiramo različite datume za recentness
+      if (mdtmDate) {
+        const diffHours = (now - mdtmDate) / (1000 * 60 * 60);
+        console.log(`MDTM - Razlika u satima: ${diffHours.toFixed(2)}h, Da li je recent: ${diffHours <= config.lookbackHours}`);
+      }
+
+      if (parsedRawDate) {
+        const diffHours = (now - parsedRawDate) / (1000 * 60 * 60);
+        console.log(`rawModifiedAt - Razlika u satima: ${diffHours.toFixed(2)}h, Da li je recent: ${diffHours <= config.lookbackHours}`);
+      }
+    }
+
+  } catch (err) {
+    console.error('Greška pri testiranju datuma fajlova:', err);
+  } finally {
+    client.close();
+  }
+}
 // Prepoznavanje komandne linije argumenta za testiranje
 if (process.argv.includes('--test-dates')) {
   console.log('Pokretanje testa datuma fajlova...');
