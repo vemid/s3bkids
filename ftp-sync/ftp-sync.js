@@ -383,11 +383,11 @@ async function checkFtpDates() {
   }
 }
 
-// Pokrenite ovu funkciju za detaljnu analizu datuma
-checkFtpDates().catch(err => console.error('Greška:', err));
-
-// Prvo pokrećemo test funkciju
-testSpecificFileDocker().catch(err => console.error('Greška pri testiranju specifičnog fajla u Docker-u:', err));
+// // Pokrenite ovu funkciju za detaljnu analizu datuma
+// checkFtpDates().catch(err => console.error('Greška:', err));
+//
+// // Prvo pokrećemo test funkciju
+// testSpecificFileDocker().catch(err => console.error('Greška pri testiranju specifičnog fajla u Docker-u:', err));
 
 // Prva sinhronizacija pri pokretanju
 setTimeout(() => {
