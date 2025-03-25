@@ -146,11 +146,22 @@ async function testFileDates() {
 
     console.log(`Pronađeno ${fileList.length} fajlova na FTP serveru`);
 
+    const specificFiles = [
+      "5249OM0B22P00.jpg",  // Zamenite ovo sa stvarnim imenima fajlova
+      "5259OZ0H13L00.jpg",
+      "5259OZ0H33A01.jpg"
+      // Dodajte još fajlova po potrebi
+    ];
+
+    const filesToProcess = fileList.filter(file =>
+        file.type === ftp.FileType.File && specificFiles.includes(file.name)
+    );
+
     // Testiramo na nekoliko fajlova
-    const testFiles = fileList.filter(file => file.type === ftp.FileType.File).slice(0, 5);
+    //const testFiles = fileList.filter(file => file.type === ftp.FileType.File).slice(0, 5);
     const now = new Date();
 
-    for (const file of testFiles) {
+    for (const file of filesToProcess) {
       console.log(`\nTestiranje fajla: ${file.name}`);
       console.log(`rawModifiedAt: ${file.rawModifiedAt}, modifiedAt: ${file.modifiedAt}`);
 
