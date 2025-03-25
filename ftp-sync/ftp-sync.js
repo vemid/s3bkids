@@ -48,18 +48,49 @@ function parseRawModifiedAt(rawDate) {
   if (!rawDate) return null;
 
   try {
-    // Format je obično "Mon DD YYYY" npr. "Dec 11 2023"
-    const currentYear = new Date().getFullYear();
-    let dateStr = rawDate;
+    // Format može biti "Mon DD YYYY" (npr. "Dec 11 2023") ili "Mon DD" (npr. "Mar 24")
+    const parts = rawDate.trim().split(' ');
 
-    // Ako nema godine, dodajemo tekuću godinu
-    if (rawDate.split(' ').length === 2) {
-      dateStr = `${rawDate} ${currentYear}`;
+    // Ako imamo samo mesec i dan (bez godine)
+    if (parts.length === 2) {
+      const month = parts[0]; // Mesec kao string (npr. "Mar")
+      const day = parseInt(parts[1]); // Dan kao broj
+
+      // Meseci u engleskom jeziku
+      const months = {
+        'Jan': 0, 'Feb': 1, 'Mar': 2, 'Apr': 3, 'May': 4, 'Jun': 5,
+        'Jul': 6, 'Aug': 7, 'Sep': 8, 'Oct': 9, 'Nov': 10, 'Dec': 11
+      };
+
+      // Dobijamo indeks meseca (0-11)
+      const monthIndex = months[month];
+
+      if (monthIndex !== undefined && !isNaN(day)) {
+        // Uzimamo tekuću godinu
+        const currentYear = new Date().getFullYear();
+
+        // Kreiramo datum sa trenutnom godinom
+        const date = new Date(currentYear, monthIndex, day);
+
+        // Provera validnosti
+        if (!isNaN(date.getTime())) {
+          return date;
+        }
+      }
+    }
+    // Ako imamo mesec, dan i godinu
+    else if (parts.length === 3) {
+      const date = new Date(rawDate);
+      if (!isNaN(date.getTime())) {
+        return date;
+      }
     }
 
-    const date = new Date(dateStr);
-    if (!isNaN(date.getTime())) {
-      return date;
+    // Ako prethodni pokušaji ne uspeju, pokušavamo još jedan način
+    const fullDateStr = parts.length === 2 ? `${rawDate} ${new Date().getFullYear()}` : rawDate;
+    const fallbackDate = new Date(fullDateStr);
+    if (!isNaN(fallbackDate.getTime())) {
+      return fallbackDate;
     }
   } catch (err) {
     console.error(`Greška pri parsiranju rawModifiedAt: ${rawDate}`, err);
