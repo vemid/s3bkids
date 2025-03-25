@@ -47,7 +47,7 @@ console.log(`Pretraga fajlova do ${config.lookbackHours} sati unazad`);
 function isFileRecent(fileDate) {
   // Provera da li je fileDate validna vrednost
   if (!fileDate || !(fileDate instanceof Date) || isNaN(fileDate.getTime())) {
-    console.log(`Upozorenje: Nevažeći datum fajla:`, fileDate);
+    //console.log(`Upozorenje: Nevažeći datum fajla:`, fileDate);
     return false;  // Tretiramo nevažeće datume kao stare
   }
 
