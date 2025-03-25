@@ -52,15 +52,16 @@ function isFileRecent(fileDate) {
   }
 
   const now = new Date();
-  now.setDate(now.getDate() + 1);
   const lookbackTime = new Date(now.getTime() - (config.lookbackHours * 60 * 60 * 1000));
 
+  // Debugging info - otkomentarišite ako je potrebno
   // console.log(`Sada: ${now.toISOString()}`);
   // console.log(`Lookback granica: ${lookbackTime.toISOString()}`);
   // console.log(`Datum fajla: ${fileDate.toISOString()}`);
   // console.log(`Razlika u satima: ${(now - fileDate) / (1000 * 60 * 60)}`);
 
-  return fileDate > lookbackTime;
+  // Fajl je "skorašnji" ako je modifikovan nakon lookbackTime, a pre ili jednako trenutnom vremenu
+  return fileDate >= lookbackTime && fileDate <= now;
 }
 
 // Funkcija za preuzimanje fajla sa FTP servera
