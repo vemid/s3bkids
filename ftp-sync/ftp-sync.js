@@ -54,10 +54,10 @@ function isFileRecent(fileDate) {
   const now = new Date();
   const lookbackTime = new Date(now.getTime() - (config.lookbackHours * 60 * 60 * 1000));
   
-  console.log(`Sada: ${now.toISOString()}`);
-  console.log(`Lookback granica: ${lookbackTime.toISOString()}`);
-  console.log(`Datum fajla: ${fileDate.toISOString()}`);
-  console.log(`Razlika u satima: ${(now - fileDate) / (1000 * 60 * 60)}`);
+  // console.log(`Sada: ${now.toISOString()}`);
+  // console.log(`Lookback granica: ${lookbackTime.toISOString()}`);
+  // console.log(`Datum fajla: ${fileDate.toISOString()}`);
+  // console.log(`Razlika u satima: ${(now - fileDate) / (1000 * 60 * 60)}`);
   
   return fileDate > lookbackTime;
 }
@@ -116,7 +116,7 @@ async function syncFtpToMinio() {
     // Debug ispis za sve fajlove
     console.log("Fileinfo za sve fajlove:");
     fileList.forEach(file => {
-      console.log(`Fajl: ${file.name}, Tip: ${file.type}, Datum: ${file.modifiedAt}, Validan datum: ${file.modifiedAt instanceof Date}`);
+      // console.log(`Fajl: ${file.name}, Tip: ${file.type}, Datum: ${file.modifiedAt}, Validan datum: ${file.modifiedAt instanceof Date}`);
     });
     
     // Filtriranje samo novijih fajlova i isključivanje direktorijuma
@@ -125,7 +125,7 @@ async function syncFtpToMinio() {
      const isRecent = isFileRecent(file.modifiedAt);
      const isSpecificFile = file.name.startsWith('5259OZ0H33A01');
   
-     console.log(`Fajl: ${file.name}, Je fajl: ${isFile}, Je skorašnji: ${isRecent}, Je specifičan fajl: ${isSpecificFile}`);
+     // console.log(`Fajl: ${file.name}, Je fajl: ${isFile}, Je skorašnji: ${isRecent}, Je specifičan fajl: ${isSpecificFile}`);
   
   // Uzimamo ili novije fajlove ili specifični fajl koji tražimo
      return isFile && (isRecent || isSpecificFile);
