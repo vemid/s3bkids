@@ -52,6 +52,7 @@ function isFileRecent(fileDate) {
   }
 
   const now = new Date();
+  now.setDate(now.getDate() + 1);
   const lookbackTime = new Date(now.getTime() - (config.lookbackHours * 60 * 60 * 1000));
   
   // console.log(`Sada: ${now.toISOString()}`);
