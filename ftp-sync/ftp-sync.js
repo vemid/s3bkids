@@ -45,27 +45,22 @@ console.log(`Pretraga fajlova do ${config.lookbackHours} sati unazad`);
 
 // Funkcija za proveru da li je fajl noviji od zadatog vremena
 function isFileRecent(fileDate) {
+  // Provera da li je fileDate validna vrednost
   if (!fileDate || !(fileDate instanceof Date) || isNaN(fileDate.getTime())) {
     //console.log(`Upozorenje: Nevažeći datum fajla:`, fileDate);
-    return false;
+    return false;  // Tretiramo nevažeće datume kao stare
   }
 
   const now = new Date();
+  now.setDate(now.getDate() + 1);
+  const lookbackTime = new Date(now.getTime() - (config.lookbackHours * 60 * 60 * 1000));
 
-  // Uzmi samo datum bez vremena
-  const todayDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const yesterdayDate = new Date(todayDate);
-  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  // console.log(`Sada: ${now.toISOString()}`);
+  // console.log(`Lookback granica: ${lookbackTime.toISOString()}`);
+  // console.log(`Datum fajla: ${fileDate.toISOString()}`);
+  // console.log(`Razlika u satima: ${(now - fileDate) / (1000 * 60 * 60)}`);
 
-  const fileOnlyDate = new Date(fileDate.getFullYear(), fileDate.getMonth(), fileDate.getDate());
-
-  // Proveri da li je datum fajla danas ili juče
-  const isToday = fileOnlyDate.getTime() === todayDate.getTime();
-  const isYesterday = fileOnlyDate.getTime() === yesterdayDate.getTime();
-
-  console.log(`Datum fajla: ${fileDate.toISOString()}, Danas: ${isToday}, Juče: ${isYesterday}`);
-
-  return isToday || isYesterday;
+  return fileDate > lookbackTime;
 }
 
 // Funkcija za preuzimanje fajla sa FTP servera
@@ -129,12 +124,12 @@ async function syncFtpToMinio() {
    const recentFiles = fileList.filter(file => {
      const isFile = file.type === ftp.FileType.File;
      const isRecent = isFileRecent(file.modifiedAt);
-     const isSpecificFile = file.name.startsWith('5259OZ0H33A01');
+     //const isSpecificFile = file.name.startsWith('5259OZ0H33A01');
   
      // console.log(`Fajl: ${file.name}, Je fajl: ${isFile}, Je skorašnji: ${isRecent}, Je specifičan fajl: ${isSpecificFile}`);
   
   // Uzimamo ili novije fajlove ili specifični fajl koji tražimo
-     return isFile && (isRecent || isSpecificFile);
+     return isFile && (isRecent);
    });
     
     console.log(`Od toga, ${recentFiles.length} fajlova je novije od ${config.lookbackHours} sati`);
