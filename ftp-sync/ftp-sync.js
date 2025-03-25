@@ -121,7 +121,7 @@ async function testSpecificFileDocker() {
 
       // Ispisujemo više informacija o datumu
       const fileDate = specificFile.modifiedAt;
-      console.log(`\nDatum modifikacije (lokalno vreme): ${fileDate.toLocaleString()}`);
+      //console.log(`\nDatum modifikacije (lokalno vreme): ${fileDate.toLocaleString()}`);
       console.log(`Datum modifikacije (ISO): ${fileDate.toISOString()}`);
       console.log(`Datum modifikacije (Unix timestamp): ${fileDate.getTime()}`);
       console.log(`Vremenska zona (offset u minutima): ${fileDate.getTimezoneOffset()}`);
