@@ -128,7 +128,7 @@ async function testSpecificFileDocker() {
 
       // Ispisujemo informacije o trenutnom vremenu Docker kontejnera
       const now = new Date();
-      console.log(`\nDocker trenutno vreme (lokalno): ${now.toLocaleString()}`);
+      //console.log(`\nDocker trenutno vreme (lokalno): ${now.toLocaleString()}`);
       console.log(`Docker trenutno vreme (ISO): ${now.toISOString()}`);
       console.log(`Docker trenutno vreme (Unix timestamp): ${now.getTime()}`);
       console.log(`Docker vremenska zona (offset u minutima): ${now.getTimezoneOffset()}`);
