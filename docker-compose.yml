@@ -84,8 +84,8 @@ services:
     container_name: product-api
     network_mode: "host"  # Koristi host mrežu kao i ostali servisi
     environment:
-      - MINIO_ENDPOINT=${MINIO_URL}
-      - MINIO_PORT=${MINIO_PORT}
+      - MINIO_ENDPOINT=localhost
+      - MINIO_PORT=9000
       - MINIO_ACCESS_KEY=${MINIO_USER}
       - MINIO_SECRET_KEY=${MINIO_PASSWORD}
       - MINIO_BUCKET=products
