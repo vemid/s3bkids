@@ -88,24 +88,31 @@ app.get('/api/images/:sku/:size', async (req, res) => {
     try {
         const { sku, size } = req.params;
         const images = [];
-        const prefix = `${sku}/${size}/`;
 
-        const stream = minioClient.listObjectsV2(BUCKET_NAME, prefix, false);
+        // Logirajte što točno tražimo
+        console.log(`Traženje slika za SKU: ${sku}, size: ${size}`);
+
+        // Pokušajte naći slike bez obzira na velika/mala slova
+        const stream = minioClient.listObjectsV2(BUCKET_NAME, '', true);
 
         stream.on('data', async (obj) => {
-            // Kreiranje URL-a za preuzimanje slike
-            try {
-                const url = await minioClient.presignedGetObject(BUCKET_NAME, obj.name, 60 * 60); // 1h link
+            const parts = obj.name.split('/');
+            if (parts.length > 2 &&
+                parts[0].toLowerCase() === sku.toLowerCase() &&
+                parts[1].toLowerCase() === size.toLowerCase()) {
+                try {
+                    const url = await minioClient.presignedGetObject(BUCKET_NAME, obj.name, 60 * 60);
 
-                images.push({
-                    name: obj.name.replace(prefix, ''),
-                    fullPath: obj.name,
-                    url: url,
-                    size: obj.size,
-                    lastModified: obj.lastModified
-                });
-            } catch (err) {
-                console.error(`Error generating URL for ${obj.name}:`, err);
+                    images.push({
+                        name: parts.slice(2).join('/'),
+                        fullPath: obj.name,
+                        url: url,
+                        size: obj.size,
+                        lastModified: obj.lastModified
+                    });
+                } catch (err) {
+                    console.error(`Error generating URL for ${obj.name}:`, err);
+                }
             }
         });
 
@@ -115,7 +122,7 @@ app.get('/api/images/:sku/:size', async (req, res) => {
         });
 
         stream.on('end', () => {
-            // Sortiraj slike po imenu
+            console.log(`Pronađeno ${images.length} slika za SKU: ${sku}, size: ${size}`);
             images.sort((a, b) => a.name.localeCompare(b.name));
             res.json(images);
         });
@@ -124,7 +131,6 @@ app.get('/api/images/:sku/:size', async (req, res) => {
         res.status(500).json({ error: 'Failed to list images', details: error.message });
     }
 });
-
 // Endpoint za preuzimanje ZIP arhive za određene SKU-ove
 app.post('/api/download-zip', async (req, res) => {
     try {
