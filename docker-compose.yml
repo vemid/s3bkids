@@ -130,6 +130,18 @@ services:
     restart: always
     networks:
       - app-network
+  frontend:
+    build:
+      context: ./product-gallery-frontend
+      dockerfile: Dockerfile
+    container_name: product-gallery-frontend
+    ports:
+      - "8010:8010"  # Koristimo port 8080 umjesto 80
+    depends_on:
+      - backend
+    restart: always
+    networks:
+      - app-network
 volumes:
   mongo-data:
     driver: local
