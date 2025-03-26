@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 
 // MongoDB konfiguracija
 const MONGO_USER = process.env.MONGO_USER || 'admin';
-const MONGO_PASSWORD = process.env.MONGO_PASSWORD || 'Admin710412!';
+const MONGO_PASSWORD = process.env.MONGO_PASSWORD || 'SecureAdminPassword123!';
 const MONGO_HOST = process.env.MONGO_HOST || 'mongodb';
 const MONGO_PORT = process.env.MONGO_PORT || '27017';
 const MONGO_DB = process.env.MONGO_DB_NAME || 'productgallery';
