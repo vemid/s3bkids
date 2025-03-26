@@ -103,10 +103,14 @@ app.get('/api/images/:sku/:size', async (req, res) => {
                 try {
                     const url = await minioClient.presignedGetObject(BUCKET_NAME, obj.name, 60 * 60);
 
+                    // Zamijenite dio URL-a s vašom domenom
+                    const modifiedUrl = url.replace('http://localhost:9000', 'https://s3bkids.bebakids.com');
+
+
                     images.push({
                         name: parts.slice(2).join('/'),
                         fullPath: obj.name,
-                        url: url,
+                        url: modifiedUrl,
                         size: obj.size,
                         lastModified: obj.lastModified
                     });
