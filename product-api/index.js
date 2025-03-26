@@ -6,6 +6,8 @@ const cors = require('cors');
 const morgan = require('morgan');
 const path = require('path');
 const fs = require('fs');
+const mongoose = require('mongoose');
+const { authenticateToken } = require('./middleware/auth');
 
 const app = express();
 
@@ -13,6 +15,18 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 app.use(morgan('dev')); // za logovanje
+
+// Povezivanje s MongoDB
+mongoose.connect(process.env.MONGODB_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true
+})
+    .then(() => console.log('Povezan s MongoDB-om'))
+    .catch(err => console.error('Greška pri povezivanju s MongoDB-om:', err));
+
+// Auth routes
+const authRoutes = require('./routes/auth');
+app.use('/api/auth', authRoutes);
 
 // Konfiguracija Minio klijenta
 const minioClient = new Minio.Client({
@@ -35,6 +49,11 @@ if (!fs.existsSync(TEMP_DIR)) {
 app.get('/api/status', (req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() });
 });
+
+// Sve routes ispod ove linije zahtijevaju autentifikaciju
+app.use('/api/skus', authenticateToken);
+app.use('/api/images', authenticateToken);
+app.use('/api/download-zip', authenticateToken);
 
 // Endpoint za dobijanje liste SKU-ova
 app.get('/api/skus', async (req, res) => {

@@ -68,7 +68,15 @@ services:
       - minio
       - image-resizer
     restart: always
+  mongodb:
+    image: mongo:6
+    container_name: mongodb
+    network_mode: "host"  # Koristi host mrežu kao i ostali servisi
+    volumes:
+      - ./mongodb_data:/data/db
+    restart: always
 
+  # Novi servis - Backend za ZIP preuzimanje i API
   product-api:
     build:
       context: ./product-api
@@ -82,22 +90,26 @@ services:
       - MINIO_SECRET_KEY=${MINIO_PASSWORD}
       - MINIO_BUCKET=products
       - PORT=9080  # API će biti dostupan na portu 9080
+      - MONGODB_URI=mongodb://localhost:27017/product-gallery
+      - JWT_SECRET=${JWT_SECRET:-vaš-tajni-ključ-za-jwt}
+      - JWT_EXPIRES_IN=8h
     volumes:
       - ./product-api/temp:/app/temp
     depends_on:
       - minio
+      - mongodb
     restart: always
 
-    # Novi servis - Frontend za pregled slika
+  # Novi servis - Frontend za pregled slika
   product-gallery:
-      build:
-        context: ./product-gallery
-        dockerfile: Dockerfile
-      container_name: product-gallery
-      network_mode: "host"  # Koristi host mrežu kao i ostali servisi
-      environment:
-        - REACT_APP_API_URL=http://localhost:9080
-        - PORT=9070  # Frontend će biti dostupan na portu 9070
-      depends_on:
-        - product-api
-      restart: always
+    build:
+      context: ./product-gallery
+      dockerfile: Dockerfile
+    container_name: product-gallery
+    network_mode: "host"  # Koristi host mrežu kao i ostali servisi
+    environment:
+      - REACT_APP_API_URL=http://localhost:9080
+      - PORT=9070  # Frontend će biti dostupan na portu 9070
+    depends_on:
+      - product-api
+    restart: always
