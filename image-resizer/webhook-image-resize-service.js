@@ -136,7 +136,7 @@ async function processImage(bucketName, objectName) {
         // Snimi WebP verziju
         await sharpInstance
           .clone()
-          .webp({ quality: 85 })
+          .webp({ quality: 100 })
           .toFile(webpTempPath);
           
         // Kreiraj putanju za WebP sliku u SKU strukturi
