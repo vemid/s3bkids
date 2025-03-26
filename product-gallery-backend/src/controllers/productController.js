@@ -10,11 +10,11 @@ const getAllProducts = async (req, res) => {
         res.json(products);
     } catch (error) {
         console.error('Greška pri dohvaćanju proizvoda:', error);
-        res.status(500).json({ message: 'Greška pri dohvaćanju proizvoda' });
+        res.status(500).json({ message: error.message });
     }
 };
 
-// Dohvaćanje proizvoda po SKU - Jednostavnija verzija
+// Dohvaćanje proizvoda po SKU
 const getProductBySku = async (req, res) => {
     try {
         const { sku } = req.params;
@@ -22,18 +22,53 @@ const getProductBySku = async (req, res) => {
         // Dohvati proizvod iz baze
         let product = await Product.findOne({ sku });
 
-        // Ako proizvod ne postoji, vrati grešku
+        // Ako proizvod ne postoji u bazi, pokušaj ga dohvatiti iz MinIO
         if (!product) {
-            return res.status(404).json({ message: 'Proizvod nije pronađen' });
+            // Dohvati slike za SKU iz MinIO
+            const images = await getSkuImages(sku);
+
+            // Provjeri ima li proizvod slika
+            if (Object.values(images).some(arr => arr.length > 0)) {
+                // Mapiraj SKU na sezonu
+                const seasonId = await mapSkuToSeason(sku);
+
+                // Pripremi thumbnail URL (prva slika iz thumb foldera)
+                let thumbnailUrl = '';
+                if (images.thumb && images.thumb.length > 0) {
+                    thumbnailUrl = images.thumb[0].url;
+                } else if (images.minithumb && images.minithumb.length > 0) {
+                    thumbnailUrl = images.minithumb[0].url;
+                }
+
+                // Kreiraj novi proizvod u bazi
+                product = new Product({
+                    sku,
+                    seasonId,
+                    thumbnailUrl,
+                    imageCount: {
+                        thumb: images.thumb ? images.thumb.length : 0,
+                        medium: images.medium ? images.medium.length : 0,
+                        large: images.large ? images.large.length : 0
+                    }
+                });
+
+                await product.save();
+            } else {
+                return res.status(404).json({ message: 'Proizvod nije pronađen' });
+            }
         }
 
+        // Dohvati slike za proizvod
+        const images = await getSkuImages(sku);
+
+        // Vrati proizvod s slikama
         res.json({
             product,
-            images: { thumb: [], medium: [], large: [] } // Privremeno prazne slike
+            images
         });
     } catch (error) {
         console.error(`Greška pri dohvaćanju proizvoda ${req.params.sku}:`, error);
-        res.status(500).json({ message: 'Greška pri dohvaćanju proizvoda' });
+        res.status(500).json({ message: error.message });
     }
 };
 
@@ -47,7 +82,7 @@ const getProductsBySeason = async (req, res) => {
         res.json(products);
     } catch (error) {
         console.error(`Greška pri dohvaćanju proizvoda za sezonu ${req.params.seasonId}:`, error);
-        res.status(500).json({ message: 'Greška pri dohvaćanju proizvoda za sezonu' });
+        res.status(500).json({ message: error.message });
     }
 };
 
@@ -58,33 +93,76 @@ const getProductsGroupedBySeasons = async (req, res) => {
         res.json(result);
     } catch (error) {
         console.error('Greška pri grupiranju proizvoda po sezonama:', error);
-        res.status(500).json({ message: 'Greška pri grupiranju proizvoda po sezonama' });
+        res.status(500).json({ message: error.message });
     }
 };
 
 // Sinkronizacija proizvoda iz MinIO
 const syncProducts = async (req, res) => {
     try {
-        res.json({
-            message: 'Sinkronizacija u toku, bit će završena uskoro.',
-            total: 0,
-            created: 0,
-            updated: 0
-        });
+        // Dohvati sve SKU-ove iz MinIO
+        const skuFolders = await listSkuFolders();
+        console.log(`Pronađeno ${skuFolders.length} SKU foldera`);
 
-        // Pokreni sinkronizaciju u pozadini
-        setTimeout(async () => {
-            try {
-                console.log('Započinjem sinkronizaciju proizvoda...');
+        let createdCount = 0;
+        let updatedCount = 0;
 
-                // Ostatak funkcije ćemo implementirati kasnije
-            } catch (error) {
-                console.error('Pozadinska greška pri sinkronizaciji proizvoda:', error);
+        // Za svaki SKU, dohvati slike i spremi proizvod u bazu
+        for (const sku of skuFolders) {
+            // Provjeri postoji li proizvod u bazi
+            let product = await Product.findOne({ sku });
+
+            // Dohvati slike za SKU
+            const images = await getSkuImages(sku);
+
+            // Izračunaj broj slika po tipu
+            const imageCount = {
+                thumb: images.thumb ? images.thumb.length : 0,
+                medium: images.medium ? images.medium.length : 0,
+                large: images.large ? images.large.length : 0
+            };
+
+            // Pripremi thumbnail URL
+            let thumbnailUrl = '';
+            if (images.thumb && images.thumb.length > 0) {
+                thumbnailUrl = images.thumb[0].url;
+            } else if (images.minithumb && images.minithumb.length > 0) {
+                thumbnailUrl = images.minithumb[0].url;
             }
-        }, 100);
+
+            if (product) {
+                // Ažuriraj postojeći proizvod
+                product.thumbnailUrl = thumbnailUrl;
+                product.imageCount = imageCount;
+                product.lastUpdated = new Date();
+                await product.save();
+                updatedCount++;
+            } else {
+                // Mapiraj SKU na sezonu
+                const seasonId = await mapSkuToSeason(sku);
+
+                // Kreiraj novi proizvod
+                product = new Product({
+                    sku,
+                    seasonId,
+                    thumbnailUrl,
+                    imageCount
+                });
+
+                await product.save();
+                createdCount++;
+            }
+        }
+
+        res.json({
+            message: 'Sinkronizacija proizvoda završena',
+            total: skuFolders.length,
+            created: createdCount,
+            updated: updatedCount
+        });
     } catch (error) {
         console.error('Greška pri sinkronizaciji proizvoda:', error);
-        res.status(500).json({ message: 'Greška pri sinkronizaciji proizvoda' });
+        res.status(500).json({ message: error.message });
     }
 };
 
