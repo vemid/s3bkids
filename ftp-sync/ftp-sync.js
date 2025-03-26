@@ -37,8 +37,10 @@ const config = {
 };
 
 // Kreiranje privremenog direktorijuma ako ne postoji
-if (!fs.existsSync(config.tempDir)) {
-  fs.mkdirSync(config.tempDir, { recursive: true });
+const tempDir = path.resolve(process.cwd(), config.tempDir);
+if (!fs.existsSync(tempDir)) {
+  fs.mkdirSync(tempDir, { recursive: true });
+  console.log(`Kreiran temp direktorij: ${tempDir}`);
 }
 
 console.log(`FTP-MinIO sync servis se pokreće...`);
