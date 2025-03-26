@@ -3,21 +3,21 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { AuthProvider, useAuth } from './context/AuthContext';
 import NavigationBar from './components/Navigation/NavigationBar';
 import Login from './components/Auth/Login';
+import ProductsPage from './pages/Products/ProductsPage';
+import ProductDetailPage from './pages/ProductDetail/ProductDetailPage';
+import AdminPage from './pages/Admin/AdminPage';
 import './App.css';
 
-// Placeholder komponente - Kasnije ćemo ih zamijeniti pravim komponentama
-const Products = () => <div>Proizvodi</div>;
-const ProductDetail = () => <div>Detalji proizvoda</div>;
-const Seasons = () => <div>Sezone</div>;
-const Admin = () => <div>Admin Panel</div>;
-const NotFound = () => <div>Stranica nije pronađena</div>;
+// Za stranicu sezone koristimo privremeni placeholder
+const Seasons = () => <div className="container">Stranica za sezone će biti implementirana uskoro.</div>;
+const NotFound = () => <div className="container">Stranica nije pronađena</div>;
 
 // Protected Route komponenta
 const ProtectedRoute = ({ children }) => {
     const { isAuthenticated, loading } = useAuth();
 
     if (loading) {
-        return <div>Učitavanje...</div>;
+        return <div className="loading-container">Učitavanje...</div>;
     }
 
     if (!isAuthenticated()) {
@@ -32,7 +32,7 @@ const AdminRoute = ({ children }) => {
     const { currentUser, loading } = useAuth();
 
     if (loading) {
-        return <div>Učitavanje...</div>;
+        return <div className="loading-container">Učitavanje...</div>;
     }
 
     if (!currentUser || currentUser.role !== 'admin') {
@@ -66,7 +66,7 @@ function AppContent() {
                             path="/products"
                             element={
                                 <ProtectedRoute>
-                                    <Products />
+                                    <ProductsPage />
                                 </ProtectedRoute>
                             }
                         />
@@ -74,7 +74,7 @@ function AppContent() {
                             path="/products/:sku"
                             element={
                                 <ProtectedRoute>
-                                    <ProductDetail />
+                                    <ProductDetailPage />
                                 </ProtectedRoute>
                             }
                         />
@@ -90,7 +90,7 @@ function AppContent() {
                             path="/admin"
                             element={
                                 <AdminRoute>
-                                    <Admin />
+                                    <AdminPage />
                                 </AdminRoute>
                             }
                         />
