@@ -233,6 +233,6 @@ app.post('/api/download-zip', async (req, res) => {
 
 // Pokreni server
 const PORT = process.env.PORT || 9080;
-app.listen(PORT, () => {
+app.listen(PORT,"0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
 });
