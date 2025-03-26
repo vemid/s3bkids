@@ -46,8 +46,8 @@ async function uploadToMinioDirectly(localFilePath, fileName, config) {
           console.log(`Fajl ${fileName} je uspešno otpremljen na MinIO (etag: ${etag})`);
           
           // Pozovi webhook za obradu
-          const webhookUrl = `http://${config.minio.endpoint}:3000/resize`;
-          
+          const webhookUrl = process.env.WEBHOOK_URL || `http://${config.minio.endpoint}:3000/resize`;
+
           console.log(`Pozivanje webhook-a na ${webhookUrl}`);
           
           axios.post(webhookUrl, {

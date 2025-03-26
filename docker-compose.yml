@@ -3,27 +3,33 @@ services:
   minio:
     image: minio/minio:latest
     container_name: minio-s3
-    network_mode: "host"  # Use host network so container ports are exposed directly on host IP
+    ports:
+      - "9000:9000"
+      - "9001:9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD}
       MINIO_DOMAIN: s3bkids.bebakids.com
       MINIO_SERVER_URL: https://s3bkids.bebakids.com
       MINIO_NOTIFY_WEBHOOK_ENABLE: "on"
-      MINIO_NOTIFY_WEBHOOK_ENDPOINT: "http://localhost:3000/webhook"
+      # Ovdje koristimo ime kontejnera umjesto localhost
+      MINIO_NOTIFY_WEBHOOK_ENDPOINT: "http://image-resizer:3000/webhook"
     volumes:
       - /mnt/nas_storage:/data
     command: server --address ":9000" --console-address ":9001" /data
     restart: always
-    
+    networks:
+      - app-network
+
   image-resizer:
     build:
       context: ./image-resizer
       dockerfile: Dockerfile
     container_name: image-resizer
-    network_mode: "host"  # Use host network like MinIO
+    # Ne izlažemo port 3000 jer će mu pristupati samo drugi kontejneri
     environment:
-      - MINIO_ENDPOINT=localhost
+      # Koristimo ime kontejnera umjesto localhost
+      - MINIO_ENDPOINT=minio
       - MINIO_PORT=9000
       - MINIO_ACCESS_KEY=${MINIO_USER}
       - MINIO_SECRET_KEY=${MINIO_PASSWORD}
@@ -33,83 +39,48 @@ services:
     depends_on:
       - minio
     restart: always
-    
+    networks:
+      - app-network
+
   ftp-sync:
     build:
       context: ./ftp-sync
       dockerfile: Dockerfile
     container_name: ftp-sync
-    network_mode: "host"  # Isti režim mreže kao i ostali servisi
     environment:
-      # FTP konfiguracija - učitavanje iz .env fajla
+      # FTP konfiguracija ostaje ista
       - FTP_HOST=${FTP_HOST}
       - FTP_PORT=${FTP_PORT}
       - FTP_USER=${FTP_USER}
       - FTP_PASSWORD=${FTP_PASSWORD}
       - FTP_SECURE=${FTP_SECURE}
       - FTP_REMOTE_PATH=${FTP_REMOTE_PATH}
-      
-      # MinIO konfiguracija - koristi iste varijable kao i ostali servisi
-      - MINIO_ENDPOINT=localhost
+
+      # MinIO konfiguracija - koristimo ime kontejnera
+      - MINIO_ENDPOINT=minio
       - MINIO_PORT=9000
       - MINIO_ACCESS_KEY=${MINIO_USER}
       - MINIO_SECRET_KEY=${MINIO_PASSWORD}
       - MINIO_BUCKET=products
-      
+
       # Raspored pokretanja
       - CRON_SCHEDULE=${FTP_CRON_SCHEDULE:-0 */1 * * *}
-      
+
       # Dodatne opcije
       - LOOKBACK_HOURS=${FTP_LOOKBACK_HOURS:-24}
       - DELETE_AFTER_UPLOAD=${FTP_DELETE_AFTER_UPLOAD:-false}
+
+      # Nova environment varijabla za webhook URL
+      - WEBHOOK_URL=http://image-resizer:3000/resize
     volumes:
       - ./ftp-sync/temp:/app/temp
     depends_on:
       - minio
       - image-resizer
     restart: always
-  mongodb:
-    image: mongo:6
-    container_name: mongodb
-    network_mode: "host"  # Koristi host mrežu kao i ostali servisi
-    volumes:
-      - ./mongodb_data:/data/db
-    restart: always
+    networks:
+      - app-network
 
-  # Novi servis - Backend za ZIP preuzimanje i API
-  product-api:
-    build:
-      context: ./product-api
-      dockerfile: Dockerfile
-    container_name: product-api
-    network_mode: "host"  # Koristi host mrežu kao i ostali servisi
-    environment:
-      - MINIO_ENDPOINT=localhost
-      - MINIO_PORT=9000
-      - MINIO_ACCESS_KEY=${MINIO_USER}
-      - MINIO_SECRET_KEY=${MINIO_PASSWORD}
-      - MINIO_BUCKET=products
-      - PORT=9080  # API će biti dostupan na portu 9080
-      - MONGODB_URI=mongodb://localhost:27017/product-gallery
-      - JWT_SECRET=${JWT_SECRET:-bebakids}
-      - JWT_EXPIRES_IN=8h
-    volumes:
-      - ./product-api/temp:/app/temp
-    depends_on:
-      - minio
-      - mongodb
-    restart: always
-
-  # Novi servis - Frontend za pregled slika
-  product-gallery:
-    build:
-      context: ./product-gallery
-      dockerfile: Dockerfile
-    container_name: product-gallery
-    network_mode: "host"  # Koristi host mrežu kao i ostali servisi
-    environment:
-      - REACT_APP_API_URL=http://localhost:9080
-      - PORT=9070  # Frontend će biti dostupan na portu 9070
-    depends_on:
-      - product-api
-    restart: always
+networks:
+  app-network:
+    driver: bridge
