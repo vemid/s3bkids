@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { productService } from '../../services/api';
+import { transformMinioUrl } from '../../utils/utilities';
 import './ProductsPage.css';
 
 const ProductsPage = () => {
@@ -14,11 +15,21 @@ const ProductsPage = () => {
             try {
                 setLoading(true);
                 const response = await productService.getProductsBySeasons();
-                setSeasonProducts(response.data);
+
+                // Transformiraj URL-ove thumbnailova
+                const transformedData = response.data.map(season => ({
+                    ...season,
+                    products: season.products.map(product => ({
+                        ...product,
+                        thumbnailUrl: transformMinioUrl(product.thumbnailUrl)
+                    }))
+                }));
+
+                setSeasonProducts(transformedData);
 
                 // Postavi prvu sezonu kao aktivnu
-                if (response.data.length > 0) {
-                    setActiveSeasonId(response.data[0]._id);
+                if (transformedData.length > 0) {
+                    setActiveSeasonId(transformedData[0]._id);
                 }
 
                 setLoading(false);

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { productService } from '../../services/api';
+import { transformMinioUrl } from '../../utils/utilities';
 import './ProductDetailPage.css';
 
 const ProductDetailPage = () => {
@@ -19,15 +20,36 @@ const ProductDetailPage = () => {
                 setLoading(true);
                 const response = await productService.getProductBySku(sku);
                 setProduct(response.data.product);
-                setImages(response.data.images);
+
+                // Transformiraj URL-ove slika
+                const transformedImages = {
+                    thumb: (response.data.images.thumb || []).map(img => ({
+                        ...img,
+                        url: transformMinioUrl(img.url)
+                    })),
+                    medium: (response.data.images.medium || []).map(img => ({
+                        ...img,
+                        url: transformMinioUrl(img.url)
+                    })),
+                    large: (response.data.images.large || []).map(img => ({
+                        ...img,
+                        url: transformMinioUrl(img.url)
+                    })),
+                    minithumb: (response.data.images.minithumb || []).map(img => ({
+                        ...img,
+                        url: transformMinioUrl(img.url)
+                    }))
+                };
+
+                setImages(transformedImages);
 
                 // Postavi prvu sliku kao odabranu
-                if (response.data.images.medium && response.data.images.medium.length > 0) {
-                    setSelectedImage(response.data.images.medium[0]);
-                } else if (response.data.images.large && response.data.images.large.length > 0) {
-                    setSelectedImage(response.data.images.large[0]);
-                } else if (response.data.images.thumb && response.data.images.thumb.length > 0) {
-                    setSelectedImage(response.data.images.thumb[0]);
+                if (transformedImages.medium && transformedImages.medium.length > 0) {
+                    setSelectedImage(transformedImages.medium[0]);
+                } else if (transformedImages.large && transformedImages.large.length > 0) {
+                    setSelectedImage(transformedImages.large[0]);
+                } else if (transformedImages.thumb && transformedImages.thumb.length > 0) {
+                    setSelectedImage(transformedImages.thumb[0]);
                 }
 
                 setLoading(false);
