@@ -91,7 +91,7 @@ services:
       - MINIO_BUCKET=products
       - PORT=9080  # API će biti dostupan na portu 9080
       - MONGODB_URI=mongodb://localhost:27017/product-gallery
-      - JWT_SECRET=${JWT_SECRET:-vaš-tajni-ključ-za-jwt}
+      - JWT_SECRET=${JWT_SECRET:bebakids}
       - JWT_EXPIRES_IN=8h
     volumes:
       - ./product-api/temp:/app/temp
