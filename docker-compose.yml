@@ -68,3 +68,36 @@ services:
       - minio
       - image-resizer
     restart: always
+
+  product-api:
+    build:
+      context: ./product-api
+      dockerfile: Dockerfile
+    container_name: product-api
+    network_mode: "host"  # Koristi host mrežu kao i ostali servisi
+    environment:
+      - MINIO_ENDPOINT=localhost
+      - MINIO_PORT=9000
+      - MINIO_ACCESS_KEY=${MINIO_USER}
+      - MINIO_SECRET_KEY=${MINIO_PASSWORD}
+      - MINIO_BUCKET=products
+      - PORT=9080  # API će biti dostupan na portu 9080
+    volumes:
+      - ./product-api/temp:/app/temp
+    depends_on:
+      - minio
+    restart: always
+
+    # Novi servis - Frontend za pregled slika
+  product-gallery:
+      build:
+        context: ./product-gallery
+        dockerfile: Dockerfile
+      container_name: product-gallery
+      network_mode: "host"  # Koristi host mrežu kao i ostali servisi
+      environment:
+        - REACT_APP_API_URL=http://localhost:9080
+        - PORT=9070  # Frontend će biti dostupan na portu 9070
+      depends_on:
+        - product-api
+      restart: always

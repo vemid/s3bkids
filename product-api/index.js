@@ -1,0 +1,219 @@
+require('dotenv').config();
+const express = require('express');
+const Minio = require('minio');
+const archiver = require('archiver');
+const cors = require('cors');
+const morgan = require('morgan');
+const path = require('path');
+const fs = require('fs');
+
+const app = express();
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(morgan('dev')); // za logovanje
+
+// Konfiguracija Minio klijenta
+const minioClient = new Minio.Client({
+    endPoint: process.env.MINIO_ENDPOINT || 'localhost',
+    port: parseInt(process.env.MINIO_PORT || '9000'),
+    useSSL: process.env.MINIO_USE_SSL === 'true',
+    accessKey: process.env.MINIO_ACCESS_KEY,
+    secretKey: process.env.MINIO_SECRET_KEY
+});
+
+const BUCKET_NAME = process.env.MINIO_BUCKET || 'products';
+const TEMP_DIR = path.join(__dirname, 'temp');
+
+// Osiguraj da temp direktorij postoji
+if (!fs.existsSync(TEMP_DIR)) {
+    fs.mkdirSync(TEMP_DIR, { recursive: true });
+}
+
+// Route za provjeru statusa
+app.get('/api/status', (req, res) => {
+    res.json({ status: 'ok', time: new Date().toISOString() });
+});
+
+// Endpoint za dobijanje liste SKU-ova
+app.get('/api/skus', async (req, res) => {
+    try {
+        const skus = new Set();
+        const stream = minioClient.listObjectsV2(BUCKET_NAME, '', true);
+
+        stream.on('data', (obj) => {
+            // Izdvajanje SKU iz putanje (npr. "SKU123/large/image.jpg" -> "SKU123")
+            const parts = obj.name.split('/');
+            if (parts.length > 1) {
+                skus.add(parts[0]);
+            }
+        });
+
+        stream.on('error', (err) => {
+            console.error('Error listing objects:', err);
+            res.status(500).json({ error: 'Failed to list SKUs', details: err.message });
+        });
+
+        stream.on('end', () => {
+            res.json(Array.from(skus).sort());
+        });
+    } catch (error) {
+        console.error('Error in /api/skus:', error);
+        res.status(500).json({ error: 'Failed to list SKUs', details: error.message });
+    }
+});
+
+// Endpoint za dobijanje slika za određeni SKU
+app.get('/api/images/:sku/:size', async (req, res) => {
+    try {
+        const { sku, size } = req.params;
+        const images = [];
+        const prefix = `${sku}/${size}/`;
+
+        const stream = minioClient.listObjectsV2(BUCKET_NAME, prefix, false);
+
+        stream.on('data', async (obj) => {
+            // Kreiranje URL-a za preuzimanje slike
+            try {
+                const url = await minioClient.presignedGetObject(BUCKET_NAME, obj.name, 60 * 60); // 1h link
+
+                images.push({
+                    name: obj.name.replace(prefix, ''),
+                    fullPath: obj.name,
+                    url: url,
+                    size: obj.size,
+                    lastModified: obj.lastModified
+                });
+            } catch (err) {
+                console.error(`Error generating URL for ${obj.name}:`, err);
+            }
+        });
+
+        stream.on('error', (err) => {
+            console.error(`Error listing images for SKU ${sku}:`, err);
+            res.status(500).json({ error: 'Failed to list images', details: err.message });
+        });
+
+        stream.on('end', () => {
+            // Sortiraj slike po imenu
+            images.sort((a, b) => a.name.localeCompare(b.name));
+            res.json(images);
+        });
+    } catch (error) {
+        console.error('Error in /api/images/:sku/:size:', error);
+        res.status(500).json({ error: 'Failed to list images', details: error.message });
+    }
+});
+
+// Endpoint za preuzimanje ZIP arhive za određene SKU-ove
+app.post('/api/download-zip', async (req, res) => {
+    try {
+        const { skus, size } = req.body;
+
+        if (!skus || !Array.isArray(skus) || skus.length === 0) {
+            return res.status(400).json({ error: 'Invalid or missing SKUs array' });
+        }
+
+        const imageSize = size || 'large'; // Default na 'large' ako nije specificiran
+        const timestamp = Date.now();
+        const zipFileName = `products-${timestamp}.zip`;
+        const zipFilePath = path.join(TEMP_DIR, zipFileName);
+
+        // Kreiraj write stream za ZIP fajl
+        const output = fs.createWriteStream(zipFilePath);
+        const archive = archiver('zip', {
+            zlib: { level: 5 } // Nivo kompresije
+        });
+
+        // Postavi event listenere
+        output.on('close', () => {
+            console.log(`ZIP archive created: ${zipFilePath} (${archive.pointer()} bytes)`);
+
+            // Šalji fajl klijentu
+            res.download(zipFilePath, `products-${skus.join('-')}.zip`, (err) => {
+                if (err) {
+                    console.error('Error sending ZIP file:', err);
+                }
+
+                // Obriši privremeni fajl nakon slanja
+                fs.unlink(zipFilePath, (unlinkErr) => {
+                    if (unlinkErr) {
+                        console.error('Error deleting temporary ZIP file:', unlinkErr);
+                    }
+                });
+            });
+        });
+
+        archive.on('error', (err) => {
+            console.error('Error creating ZIP archive:', err);
+            res.status(500).json({ error: 'Failed to create ZIP archive', details: err.message });
+        });
+
+        // Pipe archive na output
+        archive.pipe(output);
+
+        // Za svaki SKU, dodaj odgovarajuće slike u arhivu
+        for (const sku of skus) {
+            const prefix = `${sku}/${imageSize}/`;
+
+            // Dohvati sve slike za trenutni SKU
+            try {
+                const stream = minioClient.listObjectsV2(BUCKET_NAME, prefix, false);
+
+                const objectsPromises = [];
+
+                stream.on('data', (obj) => {
+                    // Dodaj obećanje za dohvaćanje objekta
+                    const objectPromise = new Promise((resolve, reject) => {
+                        minioClient.getObject(BUCKET_NAME, obj.name, (err, dataStream) => {
+                            if (err) {
+                                console.error(`Error getting object ${obj.name}:`, err);
+                                reject(err);
+                                return;
+                            }
+
+                            // Kreiraj putanju u ZIP arhivi
+                            const zipPath = obj.name;
+
+                            // Dodaj dataStream u arhivu
+                            archive.append(dataStream, { name: zipPath });
+                            resolve();
+                        });
+                    });
+
+                    objectsPromises.push(objectPromise);
+                });
+
+                stream.on('error', (err) => {
+                    console.error(`Error listing objects for SKU ${sku}:`, err);
+                });
+
+                // Čekaj da se završi listanje objekata
+                await new Promise(resolve => stream.on('end', resolve));
+
+                // Čekaj da se svi objekti dodaju u arhivu
+                await Promise.allSettled(objectsPromises);
+
+            } catch (err) {
+                console.error(`Error processing SKU ${sku}:`, err);
+            }
+        }
+
+        // Finaliziraj arhivu
+        archive.finalize();
+
+    } catch (error) {
+        console.error('Error in /api/download-zip:', error);
+
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Failed to create ZIP archive', details: error.message });
+        }
+    }
+});
+
+// Pokreni server
+const PORT = process.env.PORT || 9080;
+app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+});
