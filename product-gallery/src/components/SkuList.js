@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { FaFolder, FaSpinner } from 'react-icons/fa';
 
 const SkuList = ({
@@ -7,8 +7,43 @@ const SkuList = ({
                      selectedSkus,
                      isMultiSelect,
                      onSelectSku,
-                     loading
+                     loading,
+                     loadMore,
+                     hasMore
                  }) => {
+    const listRef = useRef(null);
+    const loadingRef = useRef(null);
+
+    // Implementacija infinite scrolling
+    useEffect(() => {
+        const observer = new IntersectionObserver((entries) => {
+            if (entries[0].isIntersecting && hasMore && !loading) {
+                loadMore();
+            }
+        }, { threshold: 0.5 });
+
+        if (loadingRef.current) {
+            observer.observe(loadingRef.current);
+        }
+
+        return () => {
+            if (loadingRef.current) {
+                observer.unobserve(loadingRef.current);
+            }
+        };
+    }, [hasMore, loadMore, loading]);
+
+    // Skroluj do selektovanog SKU-a
+    useEffect(() => {
+        if (selectedSku && listRef.current) {
+            const selectedElement = listRef.current.querySelector(`.sku-item.selected`);
+
+            if (selectedElement) {
+                selectedElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+    }, [selectedSku]);
+
     if (loading && skuList.length === 0) {
         return (
             <div className="loading">
@@ -19,7 +54,7 @@ const SkuList = ({
     }
 
     return (
-        <>
+        <div ref={listRef} className="sku-list-container">
             <h2>Proizvodi ({skuList.length})</h2>
             <ul className="sku-list">
                 {skuList.map(sku => (
@@ -42,8 +77,15 @@ const SkuList = ({
                         Nema pronađenih SKU-ova
                     </div>
                 )}
+
+                {hasMore && (
+                    <li ref={loadingRef} className="sku-item-loading">
+                        {loading && <FaSpinner className="fa-spin" />}
+                        {loading ? 'Učitavanje...' : 'Učitaj više...'}
+                    </li>
+                )}
             </ul>
-        </>
+        </div>
     );
 };
 

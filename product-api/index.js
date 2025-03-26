@@ -30,8 +30,8 @@ app.use('/api/auth', authRoutes);
 
 // Konfiguracija Minio klijenta
 const minioClient = new Minio.Client({
-    endPoint: process.env.MINIO_ENDPOINT || 'https://s3bkids.bebakids.com',
-    port: parseInt(process.env.MINIO_PORT || '443'),
+    endPoint: process.env.MINIO_ENDPOINT || 'localhost',
+    port: parseInt(process.env.MINIO_PORT || '9000'),
     useSSL: process.env.MINIO_USE_SSL === 'true',
     accessKey: process.env.MINIO_ACCESS_KEY,
     secretKey: process.env.MINIO_SECRET_KEY
@@ -39,6 +39,15 @@ const minioClient = new Minio.Client({
 
 const BUCKET_NAME = process.env.MINIO_BUCKET || 'products';
 const TEMP_DIR = path.join(__dirname, 'temp');
+const CACHE_TTL = 5 * 60 * 1000; // 5 minuta
+
+// Jednostavni keš za optimizaciju
+const cache = {
+    skus: null,
+    skuExpiry: 0,
+    images: {},
+    imageExpiry: {}
+};
 
 // Osiguraj da temp direktorij postoji
 if (!fs.existsSync(TEMP_DIR)) {
@@ -54,10 +63,31 @@ app.get('/api/status', (req, res) => {
 app.use('/api/skus', authenticateToken);
 app.use('/api/images', authenticateToken);
 app.use('/api/download-zip', authenticateToken);
+app.use('/api/image-proxy', authenticateToken);
 
-// Endpoint za dobijanje liste SKU-ova
+// Endpoint za dobijanje liste SKU-ova s paginacijom
 app.get('/api/skus', async (req, res) => {
     try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 100;
+        const startIndex = (page - 1) * limit;
+        const now = Date.now();
+
+        // Provjeri keš
+        if (cache.skus && cache.skuExpiry > now) {
+            console.log('Serving SKUs from cache');
+            const paginatedSkus = cache.skus.slice(startIndex, startIndex + limit);
+
+            return res.json({
+                total: cache.skus.length,
+                page,
+                limit,
+                data: paginatedSkus,
+                cached: true
+            });
+        }
+
+        console.log('Fetching SKUs from MinIO');
         const skus = new Set();
         const stream = minioClient.listObjectsV2(BUCKET_NAME, '', true);
 
@@ -75,7 +105,20 @@ app.get('/api/skus', async (req, res) => {
         });
 
         stream.on('end', () => {
-            res.json(Array.from(skus).sort());
+            const sortedSkus = Array.from(skus).sort();
+            const paginatedSkus = sortedSkus.slice(startIndex, startIndex + limit);
+
+            // Keširaj rezultate
+            cache.skus = sortedSkus;
+            cache.skuExpiry = now + CACHE_TTL;
+
+            res.json({
+                total: sortedSkus.length,
+                page,
+                limit,
+                data: paginatedSkus,
+                cached: false
+            });
         });
     } catch (error) {
         console.error('Error in /api/skus:', error);
@@ -83,41 +126,39 @@ app.get('/api/skus', async (req, res) => {
     }
 });
 
-// Endpoint za dobijanje slika za određeni SKU
+// Endpoint za dobijanje slika za određeni SKU - optimizovan
 app.get('/api/images/:sku/:size', async (req, res) => {
     try {
         const { sku, size } = req.params;
+        const now = Date.now();
+        const cacheKey = `${sku}_${size}`;
+
+        // Provjeri keš
+        if (cache.images[cacheKey] && cache.imageExpiry[cacheKey] > now) {
+            console.log(`Serving images for ${sku}/${size} from cache`);
+            return res.json(cache.images[cacheKey]);
+        }
+
         const images = [];
+        const prefix = `${sku}/${size}/`;
 
-        // Logirajte što točno tražimo
-        console.log(`Traženje slika za SKU: ${sku}, size: ${size}`);
+        console.log(`Fetching images for ${sku}/${size} from MinIO`);
+        const stream = minioClient.listObjectsV2(BUCKET_NAME, prefix, false);
 
-        // Pokušajte naći slike bez obzira na velika/mala slova
-        const stream = minioClient.listObjectsV2(BUCKET_NAME, '', true);
+        let objectCount = 0;
 
-        stream.on('data', async (obj) => {
-            const parts = obj.name.split('/');
-            if (parts.length > 2 &&
-                parts[0].toLowerCase() === sku.toLowerCase() &&
-                parts[1].toLowerCase() === size.toLowerCase()) {
-                try {
-                    const url = await minioClient.presignedGetObject(BUCKET_NAME, obj.name, 60 * 60);
+        stream.on('data', (obj) => {
+            objectCount++;
+            // Koristi direktni URL za sliku
+            const publicUrl = `https://s3bkids.bebakids.com/products/${obj.name}`;
 
-                    // Zamijenite dio URL-a s vašom domenom
-                    const modifiedUrl = url.replace('http://localhost:9000', 'https://s3bkids.bebakids.com');
-                    const publicUrl = `https://s3bkids.bebakids.com/products/${obj.name}`;
-
-                    images.push({
-                        name: parts.slice(2).join('/'),
-                        fullPath: obj.name,
-                        url: publicUrl,
-                        size: obj.size,
-                        lastModified: obj.lastModified
-                    });
-                } catch (err) {
-                    console.error(`Error generating URL for ${obj.name}:`, err);
-                }
-            }
+            images.push({
+                name: obj.name.replace(prefix, ''),
+                fullPath: obj.name,
+                url: publicUrl,
+                size: obj.size,
+                lastModified: obj.lastModified
+            });
         });
 
         stream.on('error', (err) => {
@@ -126,13 +167,62 @@ app.get('/api/images/:sku/:size', async (req, res) => {
         });
 
         stream.on('end', () => {
-            console.log(`Pronađeno ${images.length} slika za SKU: ${sku}, size: ${size}`);
+            console.log(`Found ${objectCount} images for ${sku}/${size}`);
+            // Sortiraj slike po imenu
             images.sort((a, b) => a.name.localeCompare(b.name));
+
+            // Keširaj rezultate
+            cache.images[cacheKey] = images;
+            cache.imageExpiry[cacheKey] = now + CACHE_TTL;
+
             res.json(images);
         });
     } catch (error) {
         console.error('Error in /api/images/:sku/:size:', error);
         res.status(500).json({ error: 'Failed to list images', details: error.message });
+    }
+});
+
+// Proxy za slike - kao alternativni pristup
+app.get('/api/image-proxy/:objectPath(*)', (req, res) => {
+    try {
+        const objectPath = req.params.objectPath;
+
+        console.log(`Proxy request for image: ${objectPath}`);
+
+        // Dohvati objekt iz MinIO
+        minioClient.getObject(BUCKET_NAME, objectPath, (err, dataStream) => {
+            if (err) {
+                console.error(`Error getting object ${objectPath}:`, err);
+                return res.status(404).json({ error: 'Image not found' });
+            }
+
+            // Odredi Content-Type prema ekstenziji datoteke
+            const extension = path.extname(objectPath).toLowerCase();
+            let contentType = 'application/octet-stream'; // Default
+
+            if (extension === '.jpg' || extension === '.jpeg') {
+                contentType = 'image/jpeg';
+            } else if (extension === '.png') {
+                contentType = 'image/png';
+            } else if (extension === '.gif') {
+                contentType = 'image/gif';
+            } else if (extension === '.webp') {
+                contentType = 'image/webp';
+            }
+
+            // Postavi odgovarajuće zaglavlje
+            res.setHeader('Content-Type', contentType);
+
+            // Postavi keš zaglavlja za browser
+            res.setHeader('Cache-Control', 'public, max-age=86400'); // 1 dan
+
+            // Pipe datotočni stream direktno u HTTP odgovor
+            dataStream.pipe(res);
+        });
+    } catch (error) {
+        console.error('Error in image proxy:', error);
+        res.status(500).json({ error: 'Error fetching image' });
     }
 });
 
@@ -242,8 +332,24 @@ app.post('/api/download-zip', async (req, res) => {
     }
 });
 
+// Endpoint za čišćenje keša
+app.post('/api/cache/clear', authenticateToken, (req, res) => {
+    try {
+        cache.skus = null;
+        cache.skuExpiry = 0;
+        cache.images = {};
+        cache.imageExpiry = {};
+
+        console.log('Cache cleared');
+        res.json({ status: 'ok', message: 'Cache cleared' });
+    } catch (error) {
+        console.error('Error clearing cache:', error);
+        res.status(500).json({ error: 'Failed to clear cache' });
+    }
+});
+
 // Pokreni server
 const PORT = process.env.PORT || 9080;
-app.listen(PORT,"0.0.0.0", () => {
+app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on port ${PORT}`);
 });

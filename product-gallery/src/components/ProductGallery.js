@@ -1,15 +1,16 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import SkuList from './SkuList';
 import SkuSearch from './SkuSearch';
 import ImageViewer from './ImageViewer';
 
 // Ikone
-import { FaDownload, FaCheckSquare, FaSignOutAlt, FaUser } from 'react-icons/fa';
+import { FaDownload, FaCheckSquare, FaSignOutAlt, FaUser, FaSync } from 'react-icons/fa';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:9080';
 
 const ProductGallery = ({ onLogout, user }) => {
+    // State varijable
     const [skuList, setSkuList] = useState([]);
     const [filteredSkuList, setFilteredSkuList] = useState([]);
     const [selectedSku, setSelectedSku] = useState(null);
@@ -20,41 +21,75 @@ const ProductGallery = ({ onLogout, user }) => {
     const [selectedSkus, setSelectedSkus] = useState([]);
     const [isMultiSelect, setIsMultiSelect] = useState(false);
     const [loading, setLoading] = useState(true);
+    const [imageLoading, setImageLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [totalSkus, setTotalSkus] = useState(0);
+    const [page, setPage] = useState(1);
+    const [limit] = useState(100);
+    const [hasMore, setHasMore] = useState(true);
 
-    // Učitaj listu SKU-ova
-    useEffect(() => {
-        const fetchSkuList = async () => {
-            try {
-                setLoading(true);
-                const response = await axios.get(`${API_URL}/api/skus`);
-                setSkuList(response.data);
-                setFilteredSkuList(response.data);
-                setLoading(false);
-            } catch (err) {
-                console.error('Error fetching SKU list:', err);
-                setError('Greška pri učitavanju liste SKU-ova');
-                setLoading(false);
+    // Učitaj listu SKU-ova s paginacijom
+    const fetchSkuList = useCallback(async (pageNum = 1, reset = false) => {
+        try {
+            setLoading(true);
+            setError(null);
+
+            const response = await axios.get(`${API_URL}/api/skus`, {
+                params: { page: pageNum, limit }
+            });
+
+            const { data, total } = response.data;
+
+            setTotalSkus(total);
+
+            if (reset) {
+                setSkuList(data);
+                setFilteredSkuList(data);
+            } else {
+                setSkuList(prev => [...prev, ...data]);
+                setFilteredSkuList(prev => [...prev, ...data]);
             }
-        };
 
-        fetchSkuList();
-    }, []);
+            setHasMore(pageNum * limit < total);
+            setLoading(false);
+        } catch (err) {
+            console.error('Error fetching SKU list:', err);
+            setError('Greška pri učitavanju liste SKU-ova');
+            setLoading(false);
+        }
+    }, [limit]);
 
-    // Učitaj slike za odabrani SKU
+    // Inicijalno učitavanje SKU-ova
+    useEffect(() => {
+        fetchSkuList(1, true);
+    }, [fetchSkuList]);
+
+    // Učitaj više SKU-ova kad se dođe do kraja liste
+    const loadMoreSkus = useCallback(() => {
+        if (!loading && hasMore) {
+            const nextPage = page + 1;
+            setPage(nextPage);
+            fetchSkuList(nextPage);
+        }
+    }, [loading, hasMore, page, fetchSkuList]);
+
+    // Učitaj slike za odabrani SKU samo kad se promijeni SKU ili veličina
     useEffect(() => {
         if (selectedSku) {
             const fetchImages = async () => {
                 try {
-                    setLoading(true);
+                    setImageLoading(true);
+                    setError(null);
+
                     const response = await axios.get(`${API_URL}/api/images/${selectedSku}/${selectedSize}`);
+
                     setImages(response.data);
                     setCurrentImageIndex(0);
-                    setLoading(false);
+                    setImageLoading(false);
                 } catch (err) {
                     console.error(`Error fetching images for SKU ${selectedSku}:`, err);
                     setError(`Greška pri učitavanju slika za SKU ${selectedSku}`);
-                    setLoading(false);
+                    setImageLoading(false);
                 }
             };
 
@@ -64,8 +99,8 @@ const ProductGallery = ({ onLogout, user }) => {
         }
     }, [selectedSku, selectedSize]);
 
-    // Filtriraj SKU-ove prema pretrazi
-    useEffect(() => {
+    // Filtriraj SKU-ove prema pretrazi - optimizovano s useMemo
+    useMemo(() => {
         if (searchTerm.trim() === '') {
             setFilteredSkuList(skuList);
         } else {
@@ -76,53 +111,65 @@ const ProductGallery = ({ onLogout, user }) => {
         }
     }, [searchTerm, skuList]);
 
-    const handleSelectSku = (sku) => {
+    // Handler za odabir SKU-a
+    const handleSelectSku = useCallback((sku) => {
         if (isMultiSelect) {
             // U multi-select modu, dodajemo/uklanjamo SKU iz selekcije
-            if (selectedSkus.includes(sku)) {
-                setSelectedSkus(prev => prev.filter(s => s !== sku));
-            } else {
-                setSelectedSkus(prev => [...prev, sku]);
-            }
+            setSelectedSkus(prev => {
+                if (prev.includes(sku)) {
+                    return prev.filter(s => s !== sku);
+                } else {
+                    return [...prev, sku];
+                }
+            });
         } else {
             // U single-select modu, samo postavimo trenutni SKU
             setSelectedSku(sku);
         }
-    };
+    }, [isMultiSelect]);
 
-    const handleSizeChange = (size) => {
+    // Handler za promjenu veličine slike
+    const handleSizeChange = useCallback((size) => {
         setSelectedSize(size);
-    };
+    }, []);
 
-    const handlePrevImage = () => {
+    // Navigacija kroz slike
+    const handlePrevImage = useCallback(() => {
         setCurrentImageIndex(prev => (prev > 0 ? prev - 1 : images.length - 1));
-    };
+    }, [images.length]);
 
-    const handleNextImage = () => {
+    const handleNextImage = useCallback(() => {
         setCurrentImageIndex(prev => ((prev + 1) % images.length));
-    };
+    }, [images.length]);
 
-    const handleSearch = (value) => {
+    // Handler za pretragu
+    const handleSearch = useCallback((value) => {
         setSearchTerm(value);
-    };
+    }, []);
 
-    const toggleMultiSelect = () => {
-        setIsMultiSelect(prev => !prev);
+    // Promjena moda odabira (single/multi)
+    const toggleMultiSelect = useCallback(() => {
+        setIsMultiSelect(prev => {
+            const newValue = !prev;
 
-        if (!isMultiSelect) {
-            // Ako prelazimo u multi-select, dodajemo trenutni SKU ako postoji
-            if (selectedSku && !selectedSkus.includes(selectedSku)) {
-                setSelectedSkus([selectedSku]);
+            if (!prev) {
+                // Ako prelazimo u multi-select, dodajemo trenutni SKU ako postoji
+                if (selectedSku && !selectedSkus.includes(selectedSku)) {
+                    setSelectedSkus([selectedSku]);
+                }
+            } else {
+                // Ako izlazimo iz multi-select, postavljamo prvi selektirani kao trenutni
+                if (selectedSkus.length > 0) {
+                    setSelectedSku(selectedSkus[0]);
+                }
             }
-        } else {
-            // Ako izlazimo iz multi-select, postavljamo prvi selektirani kao trenutni
-            if (selectedSkus.length > 0) {
-                setSelectedSku(selectedSkus[0]);
-            }
-        }
-    };
 
-    const downloadSelectedSkus = () => {
+            return newValue;
+        });
+    }, [selectedSku, selectedSkus]);
+
+    // Preuzimanje ZIP arhive
+    const downloadSelectedSkus = useCallback(() => {
         const skusToDownload = isMultiSelect ? selectedSkus : [selectedSku];
 
         if (skusToDownload.length === 0 || !skusToDownload[0]) {
@@ -160,7 +207,26 @@ const ProductGallery = ({ onLogout, user }) => {
                 console.error('Error downloading ZIP:', error);
                 setError('Greška pri preuzimanju ZIP arhive');
             });
-    };
+    }, [isMultiSelect, selectedSku, selectedSkus, selectedSize]);
+
+    // Osvježi podatke
+    const handleRefresh = useCallback(() => {
+        // Osvježi listu SKU-ova
+        fetchSkuList(1, true);
+
+        // Ako je odabran SKU, osvježi i slike
+        if (selectedSku) {
+            setSelectedSku(prev => {
+                // Moramo postaviti na null i onda nazad na istu vrijednost da bi se okidao useEffect
+                setSelectedSku(null);
+                return prev;
+            });
+        }
+
+        // Opciono: očisti keš na serveru
+        axios.post(`${API_URL}/api/cache/clear`)
+            .catch(error => console.error('Error clearing cache:', error));
+    }, [fetchSkuList, selectedSku]);
 
     return (
         <>
@@ -172,6 +238,16 @@ const ProductGallery = ({ onLogout, user }) => {
                         <FaUser className="user-icon" />
                         <span className="username">{user?.username || 'Korisnik'}</span>
                     </div>
+
+                    <button
+                        className="btn btn-secondary"
+                        onClick={handleRefresh}
+                        title="Osvježi podatke"
+                        disabled={loading || imageLoading}
+                    >
+                        <FaSync className={`btn-icon ${loading || imageLoading ? 'fa-spin' : ''}`} />
+                        Osvježi
+                    </button>
 
                     <button
                         className={`btn ${isMultiSelect ? 'btn-primary' : 'btn-secondary'}`}
@@ -187,6 +263,7 @@ const ProductGallery = ({ onLogout, user }) => {
                             className="btn btn-success"
                             onClick={downloadSelectedSkus}
                             title="Preuzmi ZIP arhivu odabranih SKU-ova"
+                            disabled={loading || imageLoading}
                         >
                             <FaDownload className="btn-icon" />
                             Preuzmi ZIP
@@ -209,6 +286,8 @@ const ProductGallery = ({ onLogout, user }) => {
                     <SkuSearch
                         searchTerm={searchTerm}
                         onSearch={handleSearch}
+                        totalResults={filteredSkuList.length}
+                        totalSkus={totalSkus}
                     />
 
                     <SkuList
@@ -218,6 +297,8 @@ const ProductGallery = ({ onLogout, user }) => {
                         isMultiSelect={isMultiSelect}
                         onSelectSku={handleSelectSku}
                         loading={loading}
+                        loadMore={loadMoreSkus}
+                        hasMore={hasMore}
                     />
                 </div>
 
@@ -230,7 +311,7 @@ const ProductGallery = ({ onLogout, user }) => {
                         onSizeChange={handleSizeChange}
                         onPrevImage={handlePrevImage}
                         onNextImage={handleNextImage}
-                        loading={loading}
+                        loading={imageLoading}
                         error={error}
                     />
                 </div>
