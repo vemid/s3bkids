@@ -103,12 +103,10 @@ app.get('/api/images/:sku/:size', async (req, res) => {
                 try {
                     const url = await minioClient.presignedGetObject(BUCKET_NAME, obj.name, 60 * 60);
 
-                    const proxyUrl = `/api/image-proxy/${obj.name}`;
-
                     images.push({
                         name: parts.slice(2).join('/'),
                         fullPath: obj.name,
-                        url: proxyUrl,
+                        url: url,
                         size: obj.size,
                         lastModified: obj.lastModified
                     });
@@ -131,46 +129,6 @@ app.get('/api/images/:sku/:size', async (req, res) => {
     } catch (error) {
         console.error('Error in /api/images/:sku/:size:', error);
         res.status(500).json({ error: 'Failed to list images', details: error.message });
-    }
-});
-
-// Proxy za slike - omogućava dohvaćanje slika direktno kroz API
-app.get('/api/image-proxy/:objectPath(*)', authenticateToken, (req, res) => {
-    try {
-        const objectPath = req.params.objectPath;
-
-        console.log(`Proxy zahtjev za sliku: ${objectPath}`);
-
-        // Dohvati objekt iz MinIO
-        minioClient.getObject(BUCKET_NAME, objectPath, (err, dataStream) => {
-            if (err) {
-                console.error(`Greška pri dohvaćanju slike ${objectPath}:`, err);
-                return res.status(404).json({ error: 'Slika nije pronađena' });
-            }
-
-            // Odredi Content-Type prema ekstenziji datoteke
-            const extension = path.extname(objectPath).toLowerCase();
-            let contentType = 'application/octet-stream'; // Default
-
-            if (extension === '.jpg' || extension === '.jpeg') {
-                contentType = 'image/jpeg';
-            } else if (extension === '.png') {
-                contentType = 'image/png';
-            } else if (extension === '.gif') {
-                contentType = 'image/gif';
-            } else if (extension === '.webp') {
-                contentType = 'image/webp';
-            }
-
-            // Postavi odgovarajuće zaglavlje
-            res.setHeader('Content-Type', contentType);
-
-            // Pipe datotočni stream direktno u HTTP odgovor
-            dataStream.pipe(res);
-        });
-    } catch (error) {
-        console.error('Greška u image-proxy ruti:', error);
-        res.status(500).json({ error: 'Greška pri dohvaćanju slike' });
     }
 });
 
