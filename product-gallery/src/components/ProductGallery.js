@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
 import SkuList from './SkuList';
 import SkuSearch from './SkuSearch';
 import ImageViewer from './ImageViewer';
@@ -27,9 +26,17 @@ const ProductGallery = ({ onLogout, user }) => {
         const fetchSkuList = async () => {
             try {
                 setLoading(true);
-                const response = await axios.get(`${API_URL}/api/skus`);
-                setSkuList(response.data);
-                setFilteredSkuList(response.data);
+                const response = await fetch(`${API_URL}/api/skus`);
+
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+
+                const data = await response.json();
+                console.log('SKU List:', data);
+
+                setSkuList(data);
+                setFilteredSkuList(data);
                 setLoading(false);
             } catch (err) {
                 console.error('Error fetching SKU list:', err);
@@ -46,13 +53,31 @@ const ProductGallery = ({ onLogout, user }) => {
         if (selectedSku) {
             const fetchImages = async () => {
                 try {
+                    console.log(`Fetching images for SKU: ${selectedSku}, Size: ${selectedSize}`);
                     setLoading(true);
-                    const response = await axios.get(`${API_URL}/api/images/${selectedSku}/${selectedSize}`);
-                    setImages(response.data);
+
+                    const response = await fetch(`${API_URL}/api/images/${selectedSku}/${selectedSize}`);
+
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+
+                    const data = await response.json();
+
+                    console.log('API Response:', data);
+                    console.log('Number of images:', data.length);
+
+                    // Dodatna provjera URL-ova
+                    const validatedImages = data.map((img, index) => {
+                        console.log(`Image ${index} URL:`, img.url);
+                        return img;
+                    });
+
+                    setImages(validatedImages);
                     setCurrentImageIndex(0);
                     setLoading(false);
                 } catch (err) {
-                    console.error(`Error fetching images for SKU ${selectedSku}:`, err);
+                    console.error(`Detailed error fetching images for SKU ${selectedSku}:`, err);
                     setError(`Greška pri učitavanju slika za SKU ${selectedSku}`);
                     setLoading(false);
                 }
@@ -122,7 +147,7 @@ const ProductGallery = ({ onLogout, user }) => {
         }
     };
 
-    const downloadSelectedSkus = () => {
+    const downloadSelectedSkus = async () => {
         const skusToDownload = isMultiSelect ? selectedSkus : [selectedSku];
 
         if (skusToDownload.length === 0 || !skusToDownload[0]) {
@@ -130,36 +155,44 @@ const ProductGallery = ({ onLogout, user }) => {
             return;
         }
 
-        // Šalji zahtjev i preuzmi ZIP
-        axios({
-            method: 'post',
-            url: `${API_URL}/api/download-zip`,
-            data: {
-                skus: skusToDownload,
-                size: selectedSize
-            },
-            responseType: 'blob'
-        })
-            .then(response => {
-                // Kreiraj URL za preuzimanje
-                const url = window.URL.createObjectURL(new Blob([response.data]));
-                const link = document.createElement('a');
-                link.href = url;
-
-                // Generiraj ime za ZIP
-                const fileName = `products-${skusToDownload.join('-')}.zip`;
-                link.setAttribute('download', fileName);
-
-                // Dodaj u DOM, klikni i očisti
-                document.body.appendChild(link);
-                link.click();
-                link.remove();
-                window.URL.revokeObjectURL(url);
-            })
-            .catch(error => {
-                console.error('Error downloading ZIP:', error);
-                setError('Greška pri preuzimanju ZIP arhive');
+        try {
+            // Šalji zahtjev i preuzmi ZIP
+            const response = await fetch(`${API_URL}/api/download-zip`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    skus: skusToDownload,
+                    size: selectedSize
+                })
             });
+
+            if (!response.ok) {
+                throw new Error('Download failed');
+            }
+
+            const blob = await response.blob();
+
+            // Kreiraj URL za preuzimanje
+            const url = window.URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+
+            // Generiraj ime za ZIP
+            const fileName = `products-${skusToDownload.join('-')}.zip`;
+            link.setAttribute('download', fileName);
+
+            // Dodaj u DOM, klikni i očisti
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.URL.revokeObjectURL(url);
+
+        } catch (error) {
+            console.error('Error downloading ZIP:', error);
+            setError('Greška pri preuzimanju ZIP arhive');
+        }
     };
 
     return (

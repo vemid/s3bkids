@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { FaChevronLeft, FaChevronRight, FaImage, FaSpinner } from 'react-icons/fa';
 
 const ImageViewer = ({
@@ -12,6 +12,19 @@ const ImageViewer = ({
                          loading,
                          error
                      }) => {
+    // Dodajemo useEffect za logging
+    useEffect(() => {
+        console.log('ImageViewer Debug:');
+        console.log('Selected SKU:', selectedSku);
+        console.log('Selected Size:', selectedSize);
+        console.log('Total Images:', images.length);
+        console.log('Current Image Index:', currentImageIndex);
+
+        if (images.length > 0) {
+            console.log('Current Image Details:', images[currentImageIndex]);
+        }
+    }, [selectedSku, selectedSize, images, currentImageIndex]);
+
     const availableSizes = ['large', 'medium', 'thumb'];
 
     // Ako nemamo odabrani SKU, prikaži prazno stanje
@@ -82,6 +95,10 @@ const ImageViewer = ({
                         src={currentImage.url}
                         alt={currentImage.name}
                         className="product-image"
+                        onError={(e) => {
+                            console.error('Image load error:', e);
+                            console.log('Problematic URL:', currentImage.url);
+                        }}
                     />
 
                     {images.length > 1 && (
