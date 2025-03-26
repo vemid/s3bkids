@@ -1,7 +1,7 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-very-secure-jwt-secret-key';
+const JWT_SECRET = process.env.JWT_SECRET || 'bebakids';
 
 // Middleware za provjeru autentifikacije
 const authenticate = async (req, res, next) => {

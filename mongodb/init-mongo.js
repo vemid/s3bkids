@@ -1,15 +1,10 @@
+
+// init-mongo.js
 // Inicijalizacija MongoDB baze podataka s odgovarajućim kredencijalima
 
-// Koristimo admin bazu za autentifikaciju
-db = db.getSiblingDB('admin');
+print("Započinjem inicijalizaciju MongoDB baze podataka...");
 
-// Provjera postoji li već korisnik (za slučaj ponovnog pokretanja)
-var adminExists = db.getUser("adminbk");
-if (!adminExists) {
-  print("Kreiranje admin korisnika...");
-}
-
-// Kreiranje productive baze
+// Kreiranje productgallery baze
 db = db.getSiblingDB('productgallery');
 
 // Kreiranje kolekcija
@@ -17,11 +12,15 @@ db.createCollection('users');
 db.createCollection('products');
 db.createCollection('seasons');
 
+print("Kolekcije kreirane: users, products, seasons");
+
 // Kreiranje indeksa
 db.users.createIndex({ "username": 1 }, { unique: true });
 db.users.createIndex({ "email": 1 }, { unique: true });
 db.products.createIndex({ "sku": 1 }, { unique: true });
 db.seasons.createIndex({ "prefix": 1 }, { unique: true });
+
+print("Indeksi kreirani");
 
 // Provjera postoji li admin korisnik
 const adminUserExists = db.users.countDocuments({ username: 'admin' }) > 0;
@@ -29,8 +28,8 @@ const adminUserExists = db.users.countDocuments({ username: 'admin' }) > 0;
 if (!adminUserExists) {
   // Kreiranje admin korisnika
   const adminUser = {
-    username: 'adminbk',
-    password: '$2b$10$pRfj3KBh/xN8QJnGvIOm4e/TF3IGcq2QzBb8QVK8G3CXqrfQTSude', // hashirana verzija Admin710412!
+    username: 'admin',
+    password: '$2b$10$pRfj3KBh/xN8QJnGvIOm4e/TF3IGcq2QzBb8QVK8G3CXqrfQTSude', // bcrypt hash za Admin710412!
     email: 'admin@bebakids.com',
     role: 'admin',
     createdAt: new Date(),
@@ -38,7 +37,7 @@ if (!adminUserExists) {
   };
 
   db.users.insertOne(adminUser);
-  print('Admin korisnik kreiran');
+  print('Admin korisnik kreiran s korisničkim imenom "admin"');
 }
 
 // Dodavanje sezona ako ne postoje
@@ -68,3 +67,5 @@ seasons.forEach(season => {
     print(`Sezona ${season.prefix} kreirana`);
   }
 });
+
+print('Inicijalizacija MongoDB baze podataka uspješno završena.');
