@@ -80,6 +80,24 @@ services:
     restart: always
     networks:
       - app-network
+  mongodb:
+    image: mongo:latest
+    container_name: product-gallery-db
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
+    volumes:
+      - mongo-data:/data/db
+      # Dodajemo skriptu za inicijalizaciju baze
+      - ./mongodb/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+    restart: always
+    networks:
+      - app-network
+volumes:
+  mongo-data:
+    driver: local
 
 networks:
   app-network:
