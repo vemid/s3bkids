@@ -6,7 +6,6 @@ const MINIO_PORT = parseInt(process.env.MINIO_PORT || '9000');
 const MINIO_ACCESS_KEY = process.env.MINIO_ACCESS_KEY || 'adminbk';
 const MINIO_SECRET_KEY = process.env.MINIO_SECRET_KEY || 'Admin710412!';
 const BUCKET_NAME = process.env.MINIO_BUCKET || 'products';
-const PUBLIC_MINIO_URL = process.env.PUBLIC_MINIO_URL || '/minio'; // Nova varijabla
 
 // Kreiranje MinIO klijenta
 const minioClient = new Minio.Client({
@@ -17,20 +16,18 @@ const minioClient = new Minio.Client({
     secretKey: MINIO_SECRET_KEY
 });
 
-// Funkcija za transformaciju internog URL-a u javno dostupan URL
-const transformUrl = (internalUrl) => {
-    // Zamijeni interno ime kontejnera s javnom putanjom
-    return internalUrl.replace(`http://${MINIO_ENDPOINT}:${MINIO_PORT}`, PUBLIC_MINIO_URL);
-};
-
 // Funkcija za generiranje privremenog URL-a
 const getPresignedUrl = async (objectName, expiry = 3600) => {
     try {
-        const internalUrl = await minioClient.presignedGetObject(BUCKET_NAME, objectName, expiry);
-        return transformUrl(internalUrl); // Transformiraj URL prije vraćanja
+        // Generiraj interni URL
+        const url = await minioClient.presignedGetObject(BUCKET_NAME, objectName, expiry);
+
+        // Jednostavna zamjena za proxy
+        return url.replace(`http://${MINIO_ENDPOINT}:${MINIO_PORT}`, '/minio');
     } catch (error) {
         console.error('Greška pri generiranju presigned URL-a:', error);
-        throw error;
+        // U slučaju greške, vrati null umjesto bacanja iznimke
+        return null;
     }
 };
 
@@ -53,7 +50,7 @@ const listSkuFolders = async () => {
         return Array.from(skuSet);
     } catch (error) {
         console.error('Greška pri dohvaćanju SKU foldera:', error);
-        throw error;
+        return [];
     }
 };
 
@@ -73,37 +70,54 @@ const getSkuImages = async (sku) => {
 
         // Za svaki objekt, generiraj presigned URL
         for (const obj of objects) {
-            // Podijeli putanju na dijelove
-            const parts = obj.name.split('/');
-            if (parts.length >= 3) {
-                const folder = parts[1]; // large, medium, thumb
-                if (result[folder]) {
-                    const url = await getPresignedUrl(obj.name);
-                    result[folder].push({
-                        name: parts[2],
-                        url: url,
-                        lastModified: obj.lastModified
-                    });
+            try {
+                // Podijeli putanju na dijelove
+                const parts = obj.name.split('/');
+                if (parts.length >= 3) {
+                    const folder = parts[1]; // large, medium, thumb
+                    if (result[folder]) {
+                        const url = await getPresignedUrl(obj.name);
+                        if (url) {
+                            result[folder].push({
+                                name: parts[2],
+                                url: url,
+                                lastModified: obj.lastModified
+                            });
+                        }
+                    }
                 }
+            } catch (innerError) {
+                console.error(`Greška pri obradi objekta ${obj.name}:`, innerError);
+                // Preskočimo problem s ovim objektom
+                continue;
             }
         }
 
         return result;
     } catch (error) {
         console.error(`Greška pri dohvaćanju slika za SKU ${sku}:`, error);
-        throw error;
+        // Vrati prazan rezultat u slučaju greške
+        return { thumb: [], medium: [], large: [], minithumb: [] };
     }
 };
 
 // Pomoćna funkcija za izlistavanje svih objekata
 const listAllObjects = (bucketName, prefix = '') => {
     return new Promise((resolve, reject) => {
-        const objects = [];
-        const stream = minioClient.listObjects(bucketName, prefix, true);
+        try {
+            const objects = [];
+            const stream = minioClient.listObjects(bucketName, prefix, true);
 
-        stream.on('data', (obj) => objects.push(obj));
-        stream.on('error', reject);
-        stream.on('end', () => resolve(objects));
+            stream.on('data', (obj) => objects.push(obj));
+            stream.on('error', (err) => {
+                console.error('Error in listObjects stream:', err);
+                reject(err);
+            });
+            stream.on('end', () => resolve(objects));
+        } catch (error) {
+            console.error('Error creating listObjects stream:', error);
+            reject(error);
+        }
     });
 };
 
