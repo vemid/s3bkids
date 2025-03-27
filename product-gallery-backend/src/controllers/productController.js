@@ -1,9 +1,12 @@
 const Product = require('../models/Product');
-const { getSkuImages, listSkuFolders } = require('../services/minioService');
+const { getSkuImages, listSkuFolders, internalClient } = require('../services/minioService');
 const { mapSkuToSeason, groupProductsBySeasons } = require('../services/seasonService');
 const fs = require('fs');
 const path = require('path');
 const archiver = require('archiver');
+const axios = require('axios');
+const stream = require('stream');
+const { promisify } = require('util');
 
 // Dohvaćanje svih proizvoda
 const getAllProducts = async (req, res) => {
@@ -169,13 +172,21 @@ const syncProducts = async (req, res) => {
     }
 };
 
-// Novi endpoint za preuzimanje svih slika kao ZIP arhive
+// Preuzimanje svih slika kao ZIP arhive - poboljšana verzija
 const downloadProductImages = async (req, res) => {
     try {
         const { sku } = req.params;
+        console.log(`Kreiranje ZIP arhive za SKU: ${sku}`);
 
         // Dohvati slike za SKU
         const images = await getSkuImages(sku);
+        console.log(`Dohvaćene slike: ${JSON.stringify(images, null, 2)}`);
+
+        // Provjeri ima li slika
+        const hasImages = Object.values(images).some(arr => arr.length > 0);
+        if (!hasImages) {
+            return res.status(404).json({ message: 'Proizvod nema slika' });
+        }
 
         // Kreiraj temp folder ako ne postoji
         const tempDir = path.join(__dirname, '../../temp');
@@ -194,7 +205,7 @@ const downloadProductImages = async (req, res) => {
         });
 
         // Rukovanje završetkom stvaranja ZIP-a
-        output.on('close', () => {
+        output.on('close', function() {
             console.log(`ZIP arhiva kreirana: ${zipFilePath} (${archive.pointer()} bajtova)`);
 
             // Postavi headers za preuzimanje
@@ -212,7 +223,7 @@ const downloadProductImages = async (req, res) => {
             });
         });
 
-        archive.on('error', (err) => {
+        archive.on('error', function(err) {
             console.error('Greška pri kreiranju ZIP arhive:', err);
             res.status(500).json({ message: 'Greška pri kreiranju ZIP arhive' });
         });
@@ -223,49 +234,43 @@ const downloadProductImages = async (req, res) => {
         // Preuzimanje i dodavanje slika u ZIP
         const imageTypes = ['large', 'medium', 'thumb'];
 
-        // Funkcija za preuzimanje i dodavanje slike u ZIP
-        const downloadAndAddToZip = async (imageObj, folder) => {
-            try {
-                // Kreiraj privremeni fajl za sliku
-                const tempImagePath = path.join(tempDir, `${folder}_${imageObj.name}`);
-
-                // Dohvati sliku koristeći URL
-                const response = await fetch(imageObj.url);
-                const buffer = await response.arrayBuffer();
-
-                // Spremi sliku privremeno
-                fs.writeFileSync(tempImagePath, Buffer.from(buffer));
-
-                // Dodaj sliku u ZIP
-                archive.file(tempImagePath, { name: `${folder}/${imageObj.name}` });
-
-                // Obriši privremeni fajl
-                fs.unlinkSync(tempImagePath);
-            } catch (err) {
-                console.error(`Greška pri preuzimanju slike ${imageObj.name}:`, err);
-            }
-        };
-
-        // Proces dodavanja slika u ZIP
-        const promises = [];
-
+        // Alternativni pristup: Direktno dohvaćanje objekata iz MinIO umjesto korištenja URL-ova
+        // Ovo izbjegava probleme s presigned URL-ovima
         for (const type of imageTypes) {
-            if (images[type] && images[type].length) {
-                // Kreiraj folder u ZIP-u
+            if (images[type] && images[type].length > 0) {
+                // Dodaj direktorij u ZIP
                 archive.append(null, { name: `${type}/` });
 
-                // Dodaj sve slike ovog tipa
-                for (const imageObj of images[type]) {
-                    promises.push(downloadAndAddToZip(imageObj, type));
+                // Za svaku sliku
+                for (const image of images[type]) {
+                    try {
+                        console.log(`Preuzimanje slike ${image.name} iz foldera ${type}...`);
+
+                        // Putanja objekta u MinIO
+                        const objectName = `${sku}/${type}/${image.name}`;
+
+                        // Privremena putanja
+                        const tempFilePath = path.join(tempDir, `temp_${type}_${image.name}`);
+
+                        // Dohvati objekt izravno iz MinIO
+                        await internalClient.fGetObject(BUCKET_NAME, objectName, tempFilePath);
+
+                        // Dodaj u ZIP
+                        archive.file(tempFilePath, { name: `${type}/${image.name}` });
+
+                        // Obriši temp fajl nakon dodavanja u ZIP
+                        fs.unlinkSync(tempFilePath);
+
+                        console.log(`Slika ${image.name} dodana u ZIP`);
+                    } catch (err) {
+                        console.error(`Greška pri dodavanju slike ${image.name}:`, err);
+                    }
                 }
             }
         }
 
-        // Čekaj da se sve slike dodaju
-        await Promise.all(promises);
-
         // Završi ZIP proces
-        await archive.finalize();
+        archive.finalize();
 
     } catch (error) {
         console.error(`Greška pri preuzimanju slika za SKU ${req.params.sku}:`, error);

@@ -1,14 +1,17 @@
 const Season = require('../models/Season');
 const Product = require('../models/Product');
 
-// Funkcija za pridruživanje SKU sa sezonom
+// Funkcija za pridruživanje SKU sa sezonom - koristi samo prva 3 znaka
 const mapSkuToSeason = async (sku) => {
     try {
-        // Izvuci prefiks iz SKU (prva 4 karaktera)
-        const prefix = sku.substring(0, 4);
+        // Koristi samo prva 3 znaka kao prefiks
+        const prefix = sku.substring(0, 3);
 
         // Pronađi sezonu s tim prefiksom
         const season = await Season.findOne({ prefix });
+
+        // Logiranje rezultata za debug
+        console.log(`Mapiranje SKU ${sku} na sezonu: prefiks=${prefix}, pronađena sezona=${season ? season.seasonName : 'nije pronađena'}`);
 
         return season ? season._id : null;
     } catch (error) {

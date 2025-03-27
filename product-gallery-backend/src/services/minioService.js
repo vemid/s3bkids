@@ -4,7 +4,7 @@ const Minio = require('minio');
 const PUBLIC_DOMAIN = 's3bkids.bebakids.com';
 const USE_SSL = true;
 
-// MinIO konfiguracija za interne operacije (list, get, itd.)
+// MinIO konfiguracija za interne operacije
 const INTERNAL_ENDPOINT = process.env.MINIO_ENDPOINT || 'minio';
 const INTERNAL_PORT = parseInt(process.env.MINIO_PORT || '9000');
 const MINIO_ACCESS_KEY = process.env.MINIO_ACCESS_KEY || 'adminbk';
@@ -29,10 +29,9 @@ const publicClient = new Minio.Client({
     secretKey: MINIO_SECRET_KEY
 });
 
-// Funkcija za generiranje privremenog URL-a koristeći javni klijent
+// Funkcija za generiranje privremenog URL-a
 const getPresignedUrl = async (objectName, expiry = 3600) => {
     try {
-        // Koristi javni klijent za generiranje URL-a s ispravnim potpisom
         return await publicClient.presignedGetObject(BUCKET_NAME, objectName, expiry);
     } catch (error) {
         console.error('Greška pri generiranju presigned URL-a:', error);
@@ -40,13 +39,11 @@ const getPresignedUrl = async (objectName, expiry = 3600) => {
     }
 };
 
-// Dohvaćanje liste svih SKU foldera - koristi interni klijent
+// Dohvaćanje liste svih SKU foldera
 const listSkuFolders = async () => {
     try {
-        // Dohvati listu svih objekata
         const objects = await listAllObjects(BUCKET_NAME, '');
 
-        // Izdvoji samo SKU foldere (prvi level direktorije)
         const skuSet = new Set();
 
         objects.forEach(obj => {
@@ -63,13 +60,14 @@ const listSkuFolders = async () => {
     }
 };
 
-// Dohvaćanje slika za određeni SKU - koristi interni klijent za listing, javni za URL-ove
+// Dohvaćanje slika za određeni SKU
 const getSkuImages = async (sku) => {
     try {
-        // Dohvati sve objekte iz SKU foldera koristeći interni klijent
+        console.log(`Tražim slike za SKU: ${sku}`);
         const objects = await listAllObjects(BUCKET_NAME, `${sku}/`);
+        console.log(`Pronađeno ${objects.length} objekta za SKU ${sku}`);
 
-        // Grupiraj po podfolderu (large, medium, thumb)
+        // Grupiraj po podfolderu
         const result = {
             thumb: [],
             medium: [],
@@ -77,22 +75,45 @@ const getSkuImages = async (sku) => {
             minithumb: []
         };
 
-        // Za svaki objekt, generiraj presigned URL koristeći javni klijent
+        // Za debugiranje
+        const folders = new Set();
+
+        // Za svaki objekt
         for (const obj of objects) {
-            // Podijeli putanju na dijelove
             const parts = obj.name.split('/');
+            // Spremamo sve foldere koje pronađemo za debug
+            if (parts.length > 1) {
+                folders.add(parts[1]);
+            }
+
+            // Provjerimo ima li barem 3 dijela (sku/folder/filename)
             if (parts.length >= 3) {
-                const folder = parts[1]; // large, medium, thumb
-                if (result[folder]) {
-                    const url = await getPresignedUrl(obj.name);
-                    result[folder].push({
-                        name: parts[2],
-                        url: url,
-                        lastModified: obj.lastModified
-                    });
+                const folder = parts[1].toLowerCase(); // normaliziramo na lowercase
+                console.log(`Folder: ${folder}, Filename: ${parts[2]}`);
+
+                // Provjeri je li ovaj folder podržan
+                if (result[folder] !== undefined) {
+                    try {
+                        const url = await getPresignedUrl(obj.name);
+                        result[folder].push({
+                            name: parts[2],
+                            url: url,
+                            lastModified: obj.lastModified,
+                            size: obj.size
+                        });
+                    } catch (urlError) {
+                        console.error(`Greška pri generiranju URL-a za ${obj.name}:`, urlError);
+                    }
                 }
             }
         }
+
+        // Debug ispis statistike
+        console.log(`Statistika slika za SKU ${sku}:`);
+        for (const [folder, images] of Object.entries(result)) {
+            console.log(`  ${folder}: ${images.length} slika`);
+        }
+        console.log(`Pronađeni folderi: ${Array.from(folders).join(', ')}`);
 
         return result;
     } catch (error) {
@@ -101,7 +122,7 @@ const getSkuImages = async (sku) => {
     }
 };
 
-// Pomoćna funkcija za izlistavanje svih objekata - koristi interni klijent
+// Pomoćna funkcija za izlistavanje svih objekata
 const listAllObjects = (bucketName, prefix = '') => {
     return new Promise((resolve, reject) => {
         const objects = [];
