@@ -1,7 +1,6 @@
 import axios from 'axios';
 
 // Korištenje relativne putanje (React će ovo pretvoriti u absolutnu putanju)
-// U browseru će to biti /api, a nginx će preusmjeriti na backend:3500/api
 const API_URL = process.env.REACT_APP_API_URL || '/api';
 
 // Kreiranje Axios instance
@@ -60,6 +59,11 @@ export const productService = {
     syncProducts: async () => {
         return api.post('/products/sync');
     },
+    downloadProductImages: async (sku) => {
+        // Koristimo window.open umjesto axios za direktno preuzimanje
+        const token = localStorage.getItem('token');
+        window.open(`${API_URL}/products/${sku}/download?token=${token}`, '_blank');
+    }
 };
 
 // Season servisi

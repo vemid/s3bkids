@@ -5,7 +5,8 @@ const {
     getProductBySku,
     getProductsBySeason,
     getProductsGroupedBySeasons,
-    syncProducts
+    syncProducts,
+    downloadProductImages
 } = require('../controllers/productController');
 const { authenticate, isAdmin } = require('../middleware/authMiddleware');
 
@@ -15,5 +16,6 @@ router.get('/grouped-by-seasons', authenticate, getProductsGroupedBySeasons); //
 router.get('/season/:seasonId', authenticate, getProductsBySeason);    // Dohvaćanje proizvoda za određenu sezonu
 router.get('/:sku', authenticate, getProductBySku);                   // Dohvaćanje proizvoda po SKU
 router.post('/sync', authenticate, isAdmin, syncProducts);            // Sinkronizacija proizvoda (samo admin)
+router.get('/:sku/download', authenticate, downloadProductImages);    // Preuzimanje ZIP arhive slika
 
 module.exports = router;

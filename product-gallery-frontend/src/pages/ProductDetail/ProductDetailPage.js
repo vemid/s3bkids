@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { productService } from '../../services/api';
-import { transformMinioUrl } from '../../utils/utilities';
 import './ProductDetailPage.css';
 
 const ProductDetailPage = () => {
@@ -13,6 +12,7 @@ const ProductDetailPage = () => {
     const [error, setError] = useState(null);
     const [viewSize, setViewSize] = useState('medium'); // large, medium, thumb
     const [selectedImage, setSelectedImage] = useState(null);
+    const [downloadingAll, setDownloadingAll] = useState(false);
 
     useEffect(() => {
         const fetchProductDetails = async () => {
@@ -21,35 +21,18 @@ const ProductDetailPage = () => {
                 const response = await productService.getProductBySku(sku);
                 setProduct(response.data.product);
 
-                // Transformiraj URL-ove slika
-                const transformedImages = {
-                    thumb: (response.data.images.thumb || []).map(img => ({
-                        ...img,
-                        url: transformMinioUrl(img.url)
-                    })),
-                    medium: (response.data.images.medium || []).map(img => ({
-                        ...img,
-                        url: transformMinioUrl(img.url)
-                    })),
-                    large: (response.data.images.large || []).map(img => ({
-                        ...img,
-                        url: transformMinioUrl(img.url)
-                    })),
-                    minithumb: (response.data.images.minithumb || []).map(img => ({
-                        ...img,
-                        url: transformMinioUrl(img.url)
-                    }))
-                };
+                // Debug log za provjeru sadržaja images objekta
+                console.log('Images from API:', response.data.images);
 
-                setImages(transformedImages);
+                setImages(response.data.images);
 
                 // Postavi prvu sliku kao odabranu
-                if (transformedImages.medium && transformedImages.medium.length > 0) {
-                    setSelectedImage(transformedImages.medium[0]);
-                } else if (transformedImages.large && transformedImages.large.length > 0) {
-                    setSelectedImage(transformedImages.large[0]);
-                } else if (transformedImages.thumb && transformedImages.thumb.length > 0) {
-                    setSelectedImage(transformedImages.thumb[0]);
+                if (response.data.images.medium && response.data.images.medium.length > 0) {
+                    setSelectedImage(response.data.images.medium[0]);
+                } else if (response.data.images.large && response.data.images.large.length > 0) {
+                    setSelectedImage(response.data.images.large[0]);
+                } else if (response.data.images.thumb && response.data.images.thumb.length > 0) {
+                    setSelectedImage(response.data.images.thumb[0]);
                 }
 
                 setLoading(false);
@@ -71,19 +54,29 @@ const ProductDetailPage = () => {
         // Kreiranje nevidljivog <a> elementa za preuzimanje
         const a = document.createElement('a');
         a.href = url;
-        a.download = filename || 'image';
+        a.setAttribute('download', filename || 'image'); // Eksplicitno postavljanje download atributa
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
     };
 
-    const handleDownloadAll = () => {
-        // Ovo je samo obavijest, za pravo preuzimanje svih slika
-        // trebali bismo implementirati ZIP generiranje na backendu
-        alert('Funkcionalnost preuzimanja svih slika odjednom bit će implementirana uskoro. Za sada možete preuzimati slike pojedinačno.');
+    const handleDownloadAll = async () => {
+        try {
+            setDownloadingAll(true);
+            // Koristi servis za preuzimanje svih slika kao ZIP
+            await productService.downloadProductImages(sku);
+        } catch (error) {
+            console.error('Greška pri preuzimanju svih slika:', error);
+        } finally {
+            setDownloadingAll(false);
+        }
     };
 
     const getCurrentImages = () => {
+        // Debug log za trenutno odabrani view size
+        console.log('Current viewSize:', viewSize);
+        console.log('Images for this size:', images[viewSize] || []);
+
         return images[viewSize] || [];
     };
 
@@ -135,8 +128,9 @@ const ProductDetailPage = () => {
                 <button
                     className="download-all-button"
                     onClick={handleDownloadAll}
+                    disabled={downloadingAll}
                 >
-                    Preuzmi sve
+                    {downloadingAll ? 'Preuzimanje...' : 'Preuzmi sve'}
                 </button>
             </div>
 

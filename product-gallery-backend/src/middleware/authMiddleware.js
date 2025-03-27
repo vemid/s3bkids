@@ -1,13 +1,18 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'bebakids';
+const JWT_SECRET = process.env.JWT_SECRET || 'your-very-secure-jwt-secret-key';
 
 // Middleware za provjeru autentifikacije
 const authenticate = async (req, res, next) => {
     try {
-        // Provjeri postoji li token
-        const token = req.header('Authorization')?.replace('Bearer ', '');
+        // Provjeri postoji li token u headeru ili query stringu
+        let token = req.header('Authorization')?.replace('Bearer ', '');
+
+        // Ako nema tokena u headeru, provjeri query string
+        if (!token && req.query.token) {
+            token = req.query.token;
+        }
 
         if (!token) {
             return res.status(401).json({ message: 'Pristup odbijen. Token nije proslijeđen' });
