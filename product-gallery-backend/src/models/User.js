@@ -39,22 +39,31 @@ const userSchema = new mongoose.Schema({
 
 // Middleware za hashiranje lozinke prije spremanja
 userSchema.pre('save', async function(next) {
-    // Samo ako je lozinka modificirana (ili nova)
-    if (!this.isModified('password')) return next();
-
     try {
+        // Samo ako je lozinka modificirana (ili nova)
+        if (!this.isModified('password')) return next();
+
         // Generiramo salt i hash
         const salt = await bcrypt.genSalt(10);
         this.password = await bcrypt.hash(this.password, salt);
         next();
     } catch (error) {
+        console.error("Password hash error:", error);
         next(error);
     }
 });
 
-// Metoda za usporedbu lozinke
+// Sigurnija metoda za usporedbu lozinke
 userSchema.methods.comparePassword = async function(candidatePassword) {
-    return bcrypt.compare(candidatePassword, this.password);
+    console.log("comparePassword called");
+
+    try {
+        // Koristimo sinkronu verziju za usporedbu - asinkrona može uzrokovati probleme
+        return bcrypt.compareSync(candidatePassword, this.password);
+    } catch (error) {
+        console.error("Password comparison error:", error);
+        return false; // Sigurnije je vratiti false nego baciti grešku
+    }
 };
 
 const User = mongoose.model('User', userSchema);
