@@ -43,14 +43,14 @@ if (!adminUserExists) {
 // Dodavanje sezona ako ne postoje
 const seasons = [
   {
-    prefix: "1251",
-    seasonName: "Proljeće 2023",
+    prefix: "125",
+    seasonName: "Proleće Leto 2025",
     displayOrder: 1,
     active: true
   },
   {
-    prefix: "5249",
-    seasonName: "Jesen 2024",
+    prefix: "624",
+    seasonName: "Jesen Zima 2024",
     displayOrder: 2,
     active: true
   }
