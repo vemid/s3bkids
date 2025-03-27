@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-// Korištenje relativne putanje (React će ovo pretvoriti u absolutnu putanju)
+// Korištenje relativne putanje
 const API_URL = process.env.REACT_APP_API_URL || '/api';
 
 // Kreiranje Axios instance
@@ -56,13 +56,40 @@ export const productService = {
     getProductsBySeasons: async () => {
         return api.get('/products/grouped-by-seasons');
     },
+    searchProducts: async (query) => {
+        return api.get(`/products/search?query=${encodeURIComponent(query)}`);
+    },
     syncProducts: async () => {
         return api.post('/products/sync');
     },
     downloadProductImages: async (sku) => {
-        // Koristimo window.open umjesto axios za direktno preuzimanje
+        // Koristimo window.open za direktno preuzimanje
         const token = localStorage.getItem('token');
         window.open(`${API_URL}/products/${sku}/download?token=${token}`, '_blank');
+    },
+    downloadMultipleProducts: async (skus) => {
+        // Za više proizvoda, šaljemo POST zahtjev
+        const token = localStorage.getItem('token');
+        window.open(`${API_URL}/products/download-multiple?token=${token}`, '_blank', '_self');
+
+        // Kreiramo form za POST zahtjev
+        const form = document.createElement('form');
+        form.method = 'POST';
+        form.action = `${API_URL}/products/download-multiple?token=${token}`;
+        form.target = '_blank';
+        form.style.display = 'none';
+
+        // Dodamo podatke
+        const input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = 'skus';
+        input.value = JSON.stringify(skus);
+        form.appendChild(input);
+
+        // Dodamo form u dokument, submitamo ga i onda uklonimo
+        document.body.appendChild(form);
+        form.submit();
+        document.body.removeChild(form);
     }
 };
 
