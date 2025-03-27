@@ -4,8 +4,12 @@ const { login, register, getCurrentUser } = require('../controllers/authControll
 const { authenticate, isAdmin } = require('../middleware/authMiddleware');
 
 // Rute za autentifikaciju
-router.post('/login', login);                            // Prijava korisnika
-router.post('/register', authenticate, isAdmin, register); // Registracija novog korisnika (samo admin)
-router.get('/me', authenticate, getCurrentUser);          // Dohvaćanje trenutnog korisnika
+router.post('/login', (req, res) => {
+    console.log("Auth route /login hit");
+    return login(req, res);
+});
+
+router.post('/register', authenticate, isAdmin, register);
+router.get('/me', authenticate, getCurrentUser);
 
 module.exports = router;
