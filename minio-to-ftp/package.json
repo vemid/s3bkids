@@ -1,0 +1,15 @@
+{
+  "name": "minio-to-ftp-sync",
+  "version": "1.0.0",
+  "description": "Servis za sinhronizaciju slika iz MinIO u FTP",
+  "main": "minio-to-ftp-sync.js",
+  "scripts": {
+    "start": "node minio-to-ftp-sync.js",
+    "sync-now": "node minio-to-ftp-sync.js --sync-now"
+  },
+  "dependencies": {
+    "minio": "^7.1.1",
+    "ftp": "^0.3.10",
+    "cron": "^3.1.0"
+  }
+}
