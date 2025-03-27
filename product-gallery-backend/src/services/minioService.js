@@ -1,44 +1,46 @@
 const Minio = require('minio');
 
-// MinIO konfiguracija
-const MINIO_ENDPOINT = process.env.MINIO_ENDPOINT || 'minio';
-const MINIO_PORT = parseInt(process.env.MINIO_PORT || '9000');
+// Konfiguracija za javnu domenu
+const PUBLIC_DOMAIN = 's3bkids.bebakids.com';
+const USE_SSL = true;
+
+// MinIO konfiguracija za interne operacije (list, get, itd.)
+const INTERNAL_ENDPOINT = process.env.MINIO_ENDPOINT || 'minio';
+const INTERNAL_PORT = parseInt(process.env.MINIO_PORT || '9000');
 const MINIO_ACCESS_KEY = process.env.MINIO_ACCESS_KEY || 'adminbk';
 const MINIO_SECRET_KEY = process.env.MINIO_SECRET_KEY || 'Admin710412!';
 const BUCKET_NAME = process.env.MINIO_BUCKET || 'products';
 
-// Javna domena MinIO servera
-const PUBLIC_MINIO_URL = process.env.PUBLIC_MINIO_URL || 'https://s3bkids.bebakids.com';
-
-// Kreiranje MinIO klijenta
-const minioClient = new Minio.Client({
-    endPoint: MINIO_ENDPOINT,
-    port: MINIO_PORT,
+// Kreiranje MinIO klijenta za interne operacije
+const internalClient = new Minio.Client({
+    endPoint: INTERNAL_ENDPOINT,
+    port: INTERNAL_PORT,
     useSSL: false,
     accessKey: MINIO_ACCESS_KEY,
     secretKey: MINIO_SECRET_KEY
 });
 
-// Funkcija za transformaciju internog URL-a u javno dostupan URL
-const transformUrl = (internalUrl) => {
-    if (!internalUrl) return internalUrl;
+// Kreiranje MinIO klijenta za javne URL-ove
+const publicClient = new Minio.Client({
+    endPoint: PUBLIC_DOMAIN,
+    port: 443,
+    useSSL: USE_SSL,
+    accessKey: MINIO_ACCESS_KEY,
+    secretKey: MINIO_SECRET_KEY
+});
 
-    // Zamjeni interno ime kontejnera s javnom domenom
-    return internalUrl.replace(`http://${MINIO_ENDPOINT}:${MINIO_PORT}`, PUBLIC_MINIO_URL);
-};
-
-// Funkcija za generiranje privremenog URL-a
+// Funkcija za generiranje privremenog URL-a koristeći javni klijent
 const getPresignedUrl = async (objectName, expiry = 3600) => {
     try {
-        const internalUrl = await minioClient.presignedGetObject(BUCKET_NAME, objectName, expiry);
-        return transformUrl(internalUrl); // Transformiraj URL prije vraćanja
+        // Koristi javni klijent za generiranje URL-a s ispravnim potpisom
+        return await publicClient.presignedGetObject(BUCKET_NAME, objectName, expiry);
     } catch (error) {
         console.error('Greška pri generiranju presigned URL-a:', error);
         throw error;
     }
 };
 
-// Dohvaćanje liste svih SKU foldera
+// Dohvaćanje liste svih SKU foldera - koristi interni klijent
 const listSkuFolders = async () => {
     try {
         // Dohvati listu svih objekata
@@ -61,10 +63,10 @@ const listSkuFolders = async () => {
     }
 };
 
-// Dohvaćanje slika za određeni SKU
+// Dohvaćanje slika za određeni SKU - koristi interni klijent za listing, javni za URL-ove
 const getSkuImages = async (sku) => {
     try {
-        // Dohvati sve objekte iz SKU foldera
+        // Dohvati sve objekte iz SKU foldera koristeći interni klijent
         const objects = await listAllObjects(BUCKET_NAME, `${sku}/`);
 
         // Grupiraj po podfolderu (large, medium, thumb)
@@ -75,7 +77,7 @@ const getSkuImages = async (sku) => {
             minithumb: []
         };
 
-        // Za svaki objekt, generiraj presigned URL
+        // Za svaki objekt, generiraj presigned URL koristeći javni klijent
         for (const obj of objects) {
             // Podijeli putanju na dijelove
             const parts = obj.name.split('/');
@@ -99,11 +101,11 @@ const getSkuImages = async (sku) => {
     }
 };
 
-// Pomoćna funkcija za izlistavanje svih objekata
+// Pomoćna funkcija za izlistavanje svih objekata - koristi interni klijent
 const listAllObjects = (bucketName, prefix = '') => {
     return new Promise((resolve, reject) => {
         const objects = [];
-        const stream = minioClient.listObjects(bucketName, prefix, true);
+        const stream = internalClient.listObjects(bucketName, prefix, true);
 
         stream.on('data', (obj) => objects.push(obj));
         stream.on('error', reject);
@@ -112,9 +114,9 @@ const listAllObjects = (bucketName, prefix = '') => {
 };
 
 module.exports = {
-    minioClient,
+    internalClient,
+    publicClient,
     getPresignedUrl,
     listSkuFolders,
-    getSkuImages,
-    transformUrl
+    getSkuImages
 };
