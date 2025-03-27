@@ -124,7 +124,7 @@ services:
       # Konfiguracija aplikacije
       - PORT=3500
       - NODE_ENV=development
-      - PUBLIC_MINIO_URL=/minio
+      - PUBLIC_MINIO_URL=https://s3bkids.bebakids.com
     depends_on:
       - minio
       - mongodb

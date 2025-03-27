@@ -6,7 +6,9 @@ const MINIO_PORT = parseInt(process.env.MINIO_PORT || '9000');
 const MINIO_ACCESS_KEY = process.env.MINIO_ACCESS_KEY || 'adminbk';
 const MINIO_SECRET_KEY = process.env.MINIO_SECRET_KEY || 'Admin710412!';
 const BUCKET_NAME = process.env.MINIO_BUCKET || 'products';
-const PUBLIC_MINIO_URL = process.env.PUBLIC_MINIO_URL || '/minio'; // Nova varijabla
+
+// Javna domena MinIO servera
+const PUBLIC_MINIO_URL = process.env.PUBLIC_MINIO_URL || 'https://s3bkids.bebakids.com';
 
 // Kreiranje MinIO klijenta
 const minioClient = new Minio.Client({
@@ -19,7 +21,9 @@ const minioClient = new Minio.Client({
 
 // Funkcija za transformaciju internog URL-a u javno dostupan URL
 const transformUrl = (internalUrl) => {
-    // Zamijeni interno ime kontejnera s javnom putanjom
+    if (!internalUrl) return internalUrl;
+
+    // Zamjeni interno ime kontejnera s javnom domenom
     return internalUrl.replace(`http://${MINIO_ENDPOINT}:${MINIO_PORT}`, PUBLIC_MINIO_URL);
 };
 
@@ -111,5 +115,6 @@ module.exports = {
     minioClient,
     getPresignedUrl,
     listSkuFolders,
-    getSkuImages
+    getSkuImages,
+    transformUrl
 };
