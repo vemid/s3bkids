@@ -530,7 +530,7 @@ app.post('/ftp-export-all', async (req, res) => {
 // Glavni deo programa
 async function main() {
   // Pokreni Express server za webhook
-  app.listen(PORT, () => {
+  app.listen(PORT,'0.0.0.0', () => {
     console.log(`Webhook server pokrenut na portu ${PORT}`);
     console.log(`Čekam MinIO notifikacije na http://localhost:${PORT}/webhook`);
 
