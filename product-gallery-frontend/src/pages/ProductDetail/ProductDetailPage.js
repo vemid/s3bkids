@@ -27,10 +27,10 @@ const ProductDetailPage = () => {
                 setImages(response.data.images);
 
                 // Postavi prvu sliku kao odabranu
-                if (response.data.images.medium && response.data.images.medium.length > 0) {
-                    setSelectedImage(response.data.images.medium[0]);
-                } else if (response.data.images.large && response.data.images.large.length > 0) {
+                if (response.data.images.large && response.data.images.large.length > 0) {
                     setSelectedImage(response.data.images.large[0]);
+                } else if (response.data.images.medium && response.data.images.medium.length > 0) {
+                    setSelectedImage(response.data.images.medium[0]);
                 } else if (response.data.images.thumb && response.data.images.thumb.length > 0) {
                     setSelectedImage(response.data.images.thumb[0]);
                 }
