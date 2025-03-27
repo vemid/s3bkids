@@ -34,6 +34,17 @@ services:
       - MINIO_ACCESS_KEY=${MINIO_USER}
       - MINIO_SECRET_KEY=${MINIO_PASSWORD}
       - BUCKET_NAME=products
+       # FTP konfiguracija za izvoz
+      - ENABLE_FTP_EXPORT=${ENABLE_FTP_EXPORT:-true}
+      - FTP_HOST=${FTP_HOST}
+      - FTP_PORT=${FTP_PORT}
+      - FTP_USER=${FTP_USER}
+      - FTP_PASSWORD=${FTP_PASSWORD}
+      - FTP_SECURE=${FTP_SECURE}
+      - FTP_EXPORT_PATH=${FTP_EXPORT_PATH:-/}
+      - EXTENSIONS_TO_EXPORT=${EXTENSIONS_TO_EXPORT:-.jpg}
+      - SIZES_TO_EXPORT=${SIZES_TO_EXPORT:-large}
+      - OVERWRITE_EXISTING=${OVERWRITE_EXISTING:-true}
     volumes:
       - ./image-resizer/temp:/usr/src/app/temp
     depends_on:
@@ -140,56 +151,6 @@ services:
       - "8010:8010"  # Koristimo port 8080 umjesto 80
     depends_on:
       - backend
-    restart: always
-    networks:
-      - app-network
-  minio-to-ftp:
-    build:
-      context: ./minio-to-ftp
-      dockerfile: Dockerfile
-    container_name: minio-to-ftp
-    environment:
-      # FTP konfiguracija
-      - FTP_HOST=${FTP_HOST}
-      - FTP_PORT=${FTP_PORT}
-      - FTP_USER=${FTP_USER}
-      - FTP_PASSWORD=${FTP_PASSWORD}
-      - FTP_SECURE=${FTP_SECURE}
-      # Putanja za izvoz procesiranih slika na FTP (root direktorijum)
-      - FTP_EXPORT_PATH=${FTP_EXPORT_PATH:-/}
-
-      # MinIO konfiguracija
-      - MINIO_ENDPOINT=minio
-      - MINIO_PORT=9000
-      - MINIO_USE_SSL=false
-      - MINIO_ACCESS_KEY=${MINIO_USER}
-      - MINIO_SECRET_KEY=${MINIO_PASSWORD}
-      - MINIO_BUCKET=products
-
-      # Raspored pokretanja
-      - EXPORT_CRON_SCHEDULE=${EXPORT_CRON_SCHEDULE:-*/30 * * * *}
-
-      # Koje veličine slika želimo da izvezemo na FTP
-      - SIZES_TO_EXPORT=${SIZES_TO_EXPORT:-large}
-
-      # Koje ekstenzije slika želimo da izvezemo na FTP
-      - EXTENSIONS_TO_EXPORT=${EXTENSIONS_TO_EXPORT:-.jpg}
-
-      # Da li da pratimo koje slike su već izvezene
-      - TRACK_PROCESSED_IMAGES=${TRACK_PROCESSED_IMAGES:-true}
-
-      # Da li prebrisati postojeće fajlove
-      - OVERWRITE_EXISTING=${OVERWRITE_EXISTING:-true}
-
-      # Da li čuvati strukturu foldera pri izvozu (false: sve u root)
-      - PRESERVE_FOLDER_STRUCTURE=${PRESERVE_FOLDER_STRUCTURE:-false}
-    volumes:
-      - ./minio-to-ftp/temp:/app/temp
-      # Čuvanje liste izvezenih slika između restartovanja kontejnera
-      - ./minio-to-ftp/data:/app/data
-    depends_on:
-      - minio
-      - image-resizer
     restart: always
     networks:
       - app-network

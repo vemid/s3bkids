@@ -1,10 +1,9 @@
-// webhook-image-resize-service.js - UPDATED VERSION
 const Minio = require('minio');
 const sharp = require('sharp');
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const axios = require('axios');
+const FTPClient = require('ftp'); // Dodajemo FTP klijent
 
 // Kreiranje Express aplikacije za webhook
 const app = express();
@@ -18,9 +17,17 @@ const MINIO_ACCESS_KEY = process.env.MINIO_ACCESS_KEY || 'admin';
 const MINIO_SECRET_KEY = process.env.MINIO_SECRET_KEY || 'password123';
 const BUCKET_NAME = process.env.BUCKET_NAME || 'products';
 
-// Konfiguracija za MinIO-to-FTP webhook
-const MINIO_TO_FTP_WEBHOOK_URL = process.env.MINIO_TO_FTP_WEBHOOK_URL || 'http://minio-to-ftp:3100/process';
-const ENABLE_FTP_EXPORT = process.env.ENABLE_FTP_EXPORT === 'true' || true;
+// FTP konfiguracija iz env varijabli
+const ENABLE_FTP_EXPORT = process.env.ENABLE_FTP_EXPORT === 'true' || false;
+const FTP_HOST = process.env.FTP_HOST;
+const FTP_PORT = parseInt(process.env.FTP_PORT || '21');
+const FTP_USER = process.env.FTP_USER;
+const FTP_PASSWORD = process.env.FTP_PASSWORD;
+const FTP_SECURE = process.env.FTP_SECURE === 'true' || false;
+const FTP_EXPORT_PATH = process.env.FTP_EXPORT_PATH || '/';
+const EXTENSIONS_TO_EXPORT = (process.env.EXTENSIONS_TO_EXPORT || '.jpg').split(',');
+const SIZES_TO_EXPORT = (process.env.SIZES_TO_EXPORT || 'medium,large').split(',');
+const OVERWRITE_EXISTING = process.env.OVERWRITE_EXISTING === 'false' || true;
 
 // Privremeni direktorijum za fajlove
 const TEMP_DIR = path.join(__dirname, 'temp');
@@ -72,9 +79,16 @@ const OPTIONS = {
 console.log(`Servis za promenu veličine slika se pokreće...`);
 console.log(`MinIO konfiguracija: ${MINIO_ENDPOINT}:${MINIO_PORT}`);
 console.log(`Bucket: ${BUCKET_NAME}`);
-console.log(`FTP izvoz ${ENABLE_FTP_EXPORT ? 'omogućen' : 'onemogućen'}`);
+
+// Logiranje FTP konfiguracije ako je omogućeno
 if (ENABLE_FTP_EXPORT) {
-  console.log(`MinIO-to-FTP webhook URL: ${MINIO_TO_FTP_WEBHOOK_URL}`);
+  console.log(`FTP izvoz je omogućen`);
+  console.log(`FTP konfiguracija: ${FTP_HOST}:${FTP_PORT}`);
+  console.log(`FTP putanja: ${FTP_EXPORT_PATH}`);
+  console.log(`Ekstenzije za izvoz: ${EXTENSIONS_TO_EXPORT.join(', ')}`);
+  console.log(`Veličine za izvoz: ${SIZES_TO_EXPORT.join(', ')}`);
+} else {
+  console.log('FTP izvoz je onemogućen');
 }
 
 // Dodaj health check endpoint
@@ -99,37 +113,105 @@ function extractSKU(filename) {
   return path.parse(basename).name;
 }
 
-// Funkcija za notifikaciju o obrađenoj slici za izvoz na FTP
-async function notifyExportService(bucket, objectName) {
-  if (!ENABLE_FTP_EXPORT) return true;
+// Pomoćne funkcije za FTP
+function ftpConnect() {
+  return new Promise((resolve, reject) => {
+    if (!ENABLE_FTP_EXPORT) {
+      reject(new Error('FTP izvoz je onemogućen'));
+      return;
+    }
 
+    const client = new FTPClient();
+
+    client.on('ready', () => {
+      resolve(client);
+    });
+
+    client.on('error', (err) => {
+      reject(err);
+    });
+
+    client.connect({
+      host: FTP_HOST,
+      port: FTP_PORT,
+      user: FTP_USER,
+      password: FTP_PASSWORD,
+      secure: FTP_SECURE
+    });
+  });
+}
+
+// Funkcija za FTP upload
+function ftpPut(client, localPath, remotePath) {
+  return new Promise((resolve, reject) => {
+    client.put(localPath, remotePath, (err) => {
+      if (err) reject(err);
+      else resolve(true);
+    });
+  });
+}
+
+// Funkcija za proveru da li treba izvesti sliku na FTP
+function shouldExportToFTP(objectName) {
+  // Ako FTP izvoz nije omogućen, ne izvozimo ništa
+  if (!ENABLE_FTP_EXPORT) return false;
+
+  // Provera veličine (folder)
+  const isSizeToExport = SIZES_TO_EXPORT.length === 0 ||
+      SIZES_TO_EXPORT.some(size => objectName.includes(`/${size}/`));
+
+  if (!isSizeToExport) return false;
+
+  // Provera ekstenzije
+  const extension = path.extname(objectName).toLowerCase();
+  const isExtensionToExport = EXTENSIONS_TO_EXPORT.length === 0 ||
+      EXTENSIONS_TO_EXPORT.includes(extension);
+
+  return isExtensionToExport;
+}
+
+// Funkcija za export slike na FTP
+async function exportToFTP(bucketName, objectName) {
+  if (!shouldExportToFTP(objectName)) {
+    return false;
+  }
+
+  let client;
   try {
-    console.log(`Notifikacija za izvoz slike ${objectName} na FTP...`);
+    console.log(`Izvoz slike ${objectName} na FTP...`);
 
-    // Šaljemo notifikaciju samo za resized slike
-    if (objectName.includes('/thumb/') ||
-        objectName.includes('/medium/') ||
-        objectName.includes('/minithumb/') ||
-        objectName.includes('/large/')) {
+    // Privremena putanja za preuzimanje
+    const tempFilePath = path.join(TEMP_DIR, `ftp_${Date.now()}_${path.basename(objectName)}`);
 
-      console.log(`Slanje notifikacije na ${MINIO_TO_FTP_WEBHOOK_URL}`);
+    // Preuzimanje slike iz MinIO
+    await minioClient.fGetObject(bucketName, objectName, tempFilePath);
+    console.log(`Slika preuzeta u: ${tempFilePath}`);
 
-      // Slanje notifikacije minio-to-ftp servisu
-      await axios.post(MINIO_TO_FTP_WEBHOOK_URL, {
-        bucket: bucket,
-        object: objectName,
-        action: 'export_to_ftp'
-      });
+    // Povezivanje na FTP
+    client = await ftpConnect();
+    console.log(`Povezan na FTP server`);
 
-      console.log(`Notifikacija poslata za ${objectName}`);
-    } else {
-      console.log(`Preskačem notifikaciju za originalnu sliku: ${objectName}`);
+    // Putanja na FTP serveru (samo ime fajla, bez foldera)
+    const ftpPath = path.posix.join(FTP_EXPORT_PATH, path.basename(objectName));
+
+    // Upload na FTP
+    await ftpPut(client, tempFilePath, ftpPath);
+    console.log(`Slika ${objectName} uspešno izvezena na FTP kao ${ftpPath}`);
+
+    // Brisanje privremenog fajla
+    if (fs.existsSync(tempFilePath)) {
+      fs.unlinkSync(tempFilePath);
+      console.log(`Privremeni fajl ${tempFilePath} obrisan`);
     }
 
     return true;
   } catch (err) {
-    console.error(`Greška pri notifikaciji za izvoz slike ${objectName}:`, err);
+    console.error(`Greška pri izvozu slike ${objectName} na FTP:`, err);
     return false;
+  } finally {
+    if (client) {
+      client.end();
+    }
   }
 }
 
@@ -161,6 +243,9 @@ async function processImage(bucketName, objectName) {
     // Priprema naziva fajla
     const filename = path.basename(objectName);
     const fileInfo = path.parse(filename);
+
+    // Lista obrađenih slika za FTP izvoz
+    const processedImages = [];
 
     // Obrada za svaku konfiguraciju veličine
     for (const config of resizeConfigs) {
@@ -194,13 +279,13 @@ async function processImage(bucketName, objectName) {
 
         console.log(`Kreirana WebP slika: ${webpObjectName}`);
 
+        // Dodaj u listu obrađenih slika
+        processedImages.push(webpObjectName);
+
         // Obriši WebP privremeni fajl
         if (fs.existsSync(webpTempPath)) {
           fs.unlinkSync(webpTempPath);
         }
-
-        // Šalji notifikaciju za WebP verziju
-        await notifyExportService(bucketName, webpObjectName);
 
         // 2. Sačuvaj i originalni format ako je opcija uključena
         if (OPTIONS.saveOriginalFormat) {
@@ -223,13 +308,13 @@ async function processImage(bucketName, objectName) {
 
           console.log(`Kreirana originalna slika: ${origObjectName}`);
 
+          // Dodaj u listu obrađenih slika
+          processedImages.push(origObjectName);
+
           // Obriši originalni privremeni fajl
           if (fs.existsSync(origTempPath)) {
             fs.unlinkSync(origTempPath);
           }
-
-          // Šalji notifikaciju za originalnu verziju
-          await notifyExportService(bucketName, origObjectName);
         }
       } catch (resizeErr) {
         console.error(`Greška pri resize-u za ${config.suffix}:`, resizeErr);
@@ -250,6 +335,14 @@ async function processImage(bucketName, objectName) {
         console.log(`Originalna slika obrisana: ${objectName}`);
       } catch (deleteErr) {
         console.error(`Greška pri brisanju originalne slike: ${deleteErr}`);
+      }
+    }
+
+    // Izvoz obrađenih slika na FTP ako je omogućeno
+    if (ENABLE_FTP_EXPORT) {
+      console.log(`Pokretanje izvoza ${processedImages.length} slika na FTP...`);
+      for (const img of processedImages) {
+        await exportToFTP(bucketName, img);
       }
     }
 
@@ -280,6 +373,32 @@ app.post('/resize', async (req, res) => {
   }
 });
 
+// Endpoint za ručni izvoz na FTP
+app.post('/export-to-ftp', async (req, res) => {
+  try {
+    const { bucket, object } = req.body;
+
+    if (!bucket || !object) {
+      return res.status(400).send('Nedostaju parametri bucket i object');
+    }
+
+    if (!ENABLE_FTP_EXPORT) {
+      return res.status(400).send('FTP izvoz je onemogućen');
+    }
+
+    // Pokreni izvoz u pozadini
+    exportToFTP(bucket, object)
+        .then(success => console.log(`Ručni izvoz ${success ? 'uspešan' : 'neuspešan'} za ${bucket}/${object}`))
+        .catch(err => console.error(`Greška pri ručnom izvozu: ${err}`));
+
+    // Odmah vrati odgovor klijentu
+    res.status(202).send(`Izvoz slike ${object} na FTP je pokrenut`);
+  } catch (error) {
+    console.error('Greška pri obradi zahteva za izvoz:', error);
+    res.status(500).send('Interna greška servera');
+  }
+});
+
 // Webhook endpoint za MinIO notifikacije
 app.post('/webhook', async (req, res) => {
   console.log('Primljena webhook notifikacija');
@@ -304,6 +423,13 @@ app.post('/webhook', async (req, res) => {
             objectName.includes('/minithumb/') ||
             objectName.includes('/large/')) {
           console.log(`Preskačem već obrađenu sliku: ${objectName}`);
+
+          // Ako je resize slika i FTP izvoz je omogućen, izvozimo je na FTP
+          if (ENABLE_FTP_EXPORT && shouldExportToFTP(objectName)) {
+            exportToFTP(bucketName, objectName)
+                .catch(err => console.error(`Greška pri izvozu slike ${objectName} na FTP:`, err));
+          }
+
           continue;
         }
 
@@ -374,6 +500,32 @@ async function listAllObjects(bucketName) {
     stream.on('end', () => resolve(objects));
   });
 }
+
+// Endpoint za ručno izvršavanje FTP izvoza svih slika
+app.post('/ftp-export-all', async (req, res) => {
+  try {
+    if (!ENABLE_FTP_EXPORT) {
+      return res.status(400).send('FTP izvoz je onemogućen');
+    }
+
+    res.status(202).send('Započet je izvoz svih slika na FTP. Ovo može potrajati...');
+
+    console.log('Pokretanje izvoza svih slika na FTP...');
+
+    const objects = await listAllObjects(BUCKET_NAME);
+    const imagesToExport = objects.filter(obj => shouldExportToFTP(obj.name));
+
+    console.log(`Pronađeno ${imagesToExport.length} slika za izvoz na FTP`);
+
+    for (const img of imagesToExport) {
+      await exportToFTP(BUCKET_NAME, img.name);
+    }
+
+    console.log('Izvoz svih slika na FTP je završen');
+  } catch (error) {
+    console.error('Greška pri izvozu svih slika na FTP:', error);
+  }
+});
 
 // Glavni deo programa
 async function main() {
