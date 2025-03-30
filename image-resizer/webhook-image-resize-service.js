@@ -34,11 +34,11 @@ const minioClient = new Minio.Client({
 
 // Definisanje konfiguracija za različite veličine slika
 const resizeConfigs = [
-  { 
-    suffix: 'minithumbnail', 
-    folder: 'minithumb',
-    width: 75 
-  },
+  // {
+  //   suffix: 'minithumbnail',
+  //   folder: 'minithumb',
+  //   width: 75
+  // },
   { 
     suffix: 'thumbnail', 
     folder: 'thumb',
@@ -98,7 +98,7 @@ async function processImage(bucketName, objectName) {
     // Preskoči već obrađene slike (slike u SKU folderima)
     if (objectName.includes('/thumb/') || 
         objectName.includes('/medium/') || 
-        objectName.includes('/minithumb/') ||
+        // objectName.includes('/minithumb/') ||
 	objectName.includes('/large/')) {
       console.log(`Preskačem već obrađenu sliku: ${objectName}`);
       return;
@@ -252,7 +252,7 @@ app.post('/webhook', async (req, res) => {
         // Obrađujemo samo slike i preskačemo već obrađene
         if (objectName.includes('/thumb/') || 
             objectName.includes('/medium/') || 
-            objectName.includes('/minithumb/') ||
+            // objectName.includes('/minithumb/') ||
 	    objectName.includes('/large/')) {
           console.log(`Preskačem već obrađenu sliku: ${objectName}`);
           continue;
