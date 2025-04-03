@@ -28,6 +28,8 @@ const FTP_USER = process.env.FTP_USER;
 const FTP_PASSWORD = process.env.FTP_PASSWORD;
 const FTP_SECURE = process.env.FTP_SECURE === 'true';
 const FTP_REMOTE_BASE_PATH = process.env.FTP_REMOTE_PATH || '/';
+// Dodavanje FTP_SEND parametra
+const FTP_SEND = process.env.GEOX_FTP_SEND === 'true';
 
 // Validacija FTP konfiguracije (osnovna)
 if (!FTP_HOST || !FTP_USER || !FTP_PASSWORD) {
@@ -65,6 +67,7 @@ console.log(`Geox servis za promenu veličine slika se pokreće...`);
 console.log(`MinIO konfiguracija: ${MINIO_ENDPOINT}:${MINIO_PORT}`);
 console.log(`Bucket: ${BUCKET_NAME}`);
 console.log(`SKU Translator URL: ${SKU_TRANSLATOR_URL}`);
+console.log(`FTP slanje je ${FTP_SEND ? 'UKLJUČENO' : 'ISKLJUČENO'}`);
 if (FTP_HOST && FTP_USER) {
     console.log(`FTP konfiguracija: Host=${FTP_HOST}, User=${FTP_USER}, Secure=${FTP_SECURE}, BasePath=${FTP_REMOTE_BASE_PATH}`);
 } else {
@@ -122,8 +125,11 @@ async function extractSKU(filename) {
 
 // Funkcija za FTP upload
 async function uploadToFtp(localFilePath, remoteFtpPath) {
-    // Preskoči ako FTP nije konfigurisan
-    if (!FTP_HOST || !FTP_USER || !FTP_PASSWORD) {
+    // Preskoči ako FTP nije konfigurisan ili FTP_SEND je false
+    if (!FTP_HOST || !FTP_USER || !FTP_PASSWORD || !FTP_SEND) {
+        if (!FTP_SEND) {
+            console.log(`Preskačem FTP upload jer je GEOX_FTP_SEND=${FTP_SEND}`);
+        }
         return;
     }
 
@@ -225,18 +231,6 @@ async function processImage(bucketName, objectName) {
                 );
                 console.log(`Kreirana i uploadovana WebP slika u kataloški SKU folder: ${webpCatalogMinioObjectName}`);
 
-                // Upload na FTP samo za large format
-                if (config.folder === 'large') {
-                    // FTP putanja - šaljemo samo kataloški SKU verziju sa originalnim imenom fajla
-                    const origFtpFullPath = path.join(FTP_REMOTE_BASE_PATH, catalogSKU, config.folder, `${fileInfo.name}${fileInfo.ext}`).replace(/\\/g, '/');
-
-                    console.log(`[FTP Upload Triggered] Uslov 'config.folder === "large"' je ispunjen za original format.`);
-                    const ftpFileNameOrig = path.basename(origFtpFullPath);
-                    const ftpRootPathOrig = path.join(FTP_REMOTE_BASE_PATH, ftpFileNameOrig).replace(/\\/g, '/');
-                    console.log(`[FTP Upload Path] Nova FTP putanja (root): ${ftpRootPathOrig}`);
-                    await uploadToFtp(origTempPath, ftpRootPathOrig);
-                }
-
                 // 2. Sačuvaj i originalni format ako je opcija uključena
                 if (OPTIONS.saveOriginalFormat) {
                     origTempPath = path.join(TEMP_DIR, `${fileInfo.name}_${config.suffix}_${Date.now()}${fileInfo.ext}`);
@@ -264,7 +258,7 @@ async function processImage(bucketName, objectName) {
                     );
                     console.log(`Kreirana i uploadovana originalna slika u kataloški SKU folder: ${origCatalogMinioObjectName}`);
 
-                    // Upload na FTP samo za large format
+                    // Upload na FTP samo za large format - samo originalnu verziju
                     if (config.folder === 'large') {
                         // FTP putanja - šaljemo samo kataloški SKU verziju sa originalnim imenom fajla
                         const origFtpFullPath = path.join(FTP_REMOTE_BASE_PATH, catalogSKU, config.folder, `${fileInfo.name}${fileInfo.ext}`).replace(/\\/g, '/');
@@ -273,6 +267,8 @@ async function processImage(bucketName, objectName) {
                         const ftpFileNameOrig = path.basename(origFtpFullPath);
                         const ftpRootPathOrig = path.join(FTP_REMOTE_BASE_PATH, ftpFileNameOrig).replace(/\\/g, '/');
                         console.log(`[FTP Upload Path] Nova FTP putanja (root): ${ftpRootPathOrig}`);
+
+                        // Ovaj poziv će preskočiti upload ako je FTP_SEND false
                         await uploadToFtp(origTempPath, ftpRootPathOrig);
                     }
                 }
