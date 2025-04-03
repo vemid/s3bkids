@@ -1,4 +1,4 @@
-FROM node:16
+FROM python:3.9
 
 WORKDIR /usr/src/app
 
@@ -10,15 +10,17 @@ RUN apt-get update && apt-get install -y \
 # Kreiranje direktorijuma za JDBC drajvere
 RUN mkdir -p drivers
 
-# Kopiraj package.json i sku-translator-service.js
-COPY package.json sku-translator-service.js ./
+# Kopiraj requirements.txt
+COPY requirements.txt .
 
-# Instaliraj zavisnosti
-RUN npm install
-RUN npm install jdbc node-jt400 --no-save || true
+# Instaliraj Python zavisnosti
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Kopiraj source kod
+COPY sku_translator.py .
 
 # Izloži port
 EXPOSE 3002
 
 # Pokreni servis
-CMD ["node", "sku-translator-service.js"]
+CMD ["python", "sku_translator.py"]

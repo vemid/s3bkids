@@ -1,0 +1,2 @@
+flask==2.0.1
+jaydebeapi==1.2.3
