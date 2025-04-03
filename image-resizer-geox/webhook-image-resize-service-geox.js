@@ -228,13 +228,13 @@ async function processImage(bucketName, objectName) {
                 // Upload na FTP samo za large format
                 if (config.folder === 'large') {
                     // FTP putanja - šaljemo samo kataloški SKU verziju sa originalnim imenom fajla
-                    const webpFtpFullPath = path.join(FTP_REMOTE_BASE_PATH, catalogSKU, config.folder, `${fileInfo.name}.webp`).replace(/\\/g, '/');
+                    const origFtpFullPath = path.join(FTP_REMOTE_BASE_PATH, catalogSKU, config.folder, `${fileInfo.name}${fileInfo.ext}`).replace(/\\/g, '/');
 
-                    console.log(`[FTP Upload Triggered] Uslov 'config.folder === "large"' je ispunjen za WebP.`);
-                    const ftpFileNameWebp = path.basename(webpFtpFullPath);
-                    const ftpRootPathWebp = path.join(FTP_REMOTE_BASE_PATH, ftpFileNameWebp).replace(/\\/g, '/');
-                    console.log(`[FTP Upload Path] Nova FTP putanja (root): ${ftpRootPathWebp}`);
-                    await uploadToFtp(webpTempPath, ftpRootPathWebp);
+                    console.log(`[FTP Upload Triggered] Uslov 'config.folder === "large"' je ispunjen za original format.`);
+                    const ftpFileNameOrig = path.basename(origFtpFullPath);
+                    const ftpRootPathOrig = path.join(FTP_REMOTE_BASE_PATH, ftpFileNameOrig).replace(/\\/g, '/');
+                    console.log(`[FTP Upload Path] Nova FTP putanja (root): ${ftpRootPathOrig}`);
+                    await uploadToFtp(origTempPath, ftpRootPathOrig);
                 }
 
                 // 2. Sačuvaj i originalni format ako je opcija uključena
