@@ -207,8 +207,8 @@ async function processImage(bucketName, objectName) {
                     .webp({ quality: 90 })
                     .toFile(webpTempPath);
 
-                // Za folder sa realnim SKU
-                const webpRealMinioObjectName = `${realSKU}/${config.folder}/${realSKU}.webp`;
+                // Za folder sa realnim SKU - čuvamo originalno ime fajla
+                const webpRealMinioObjectName = `${realSKU}/${config.folder}/${fileInfo.name}.webp`;
                 await minioClient.fPutObject(
                     bucketName,
                     webpRealMinioObjectName,
@@ -216,8 +216,8 @@ async function processImage(bucketName, objectName) {
                 );
                 console.log(`Kreirana i uploadovana WebP slika u realni SKU folder: ${webpRealMinioObjectName}`);
 
-                // Za folder sa kataloškim SKU
-                const webpCatalogMinioObjectName = `${catalogSKU}/${config.folder}/${catalogSKU}.webp`;
+                // Za folder sa kataloškim SKU - čuvamo originalno ime fajla
+                const webpCatalogMinioObjectName = `${catalogSKU}/${config.folder}/${fileInfo.name}.webp`;
                 await minioClient.fPutObject(
                     bucketName,
                     webpCatalogMinioObjectName,
@@ -227,8 +227,8 @@ async function processImage(bucketName, objectName) {
 
                 // Upload na FTP samo za large format
                 if (config.folder === 'large') {
-                    // FTP putanja - šaljemo samo kataloški SKU verziju
-                    const webpFtpFullPath = path.join(FTP_REMOTE_BASE_PATH, catalogSKU, config.folder, `${catalogSKU}.webp`).replace(/\\/g, '/');
+                    // FTP putanja - šaljemo samo kataloški SKU verziju sa originalnim imenom fajla
+                    const webpFtpFullPath = path.join(FTP_REMOTE_BASE_PATH, catalogSKU, config.folder, `${fileInfo.name}.webp`).replace(/\\/g, '/');
 
                     console.log(`[FTP Upload Triggered] Uslov 'config.folder === "large"' je ispunjen za WebP.`);
                     const ftpFileNameWebp = path.basename(webpFtpFullPath);
@@ -246,8 +246,8 @@ async function processImage(bucketName, objectName) {
                         .clone()
                         .toFile(origTempPath);
 
-                    // Za folder sa realnim SKU
-                    const origRealMinioObjectName = `${realSKU}/${config.folder}/${realSKU}${fileInfo.ext}`;
+                    // Za folder sa realnim SKU - čuvamo originalno ime fajla
+                    const origRealMinioObjectName = `${realSKU}/${config.folder}/${fileInfo.name}${fileInfo.ext}`;
                     await minioClient.fPutObject(
                         bucketName,
                         origRealMinioObjectName,
@@ -255,8 +255,8 @@ async function processImage(bucketName, objectName) {
                     );
                     console.log(`Kreirana i uploadovana originalna slika u realni SKU folder: ${origRealMinioObjectName}`);
 
-                    // Za folder sa kataloškim SKU
-                    const origCatalogMinioObjectName = `${catalogSKU}/${config.folder}/${catalogSKU}${fileInfo.ext}`;
+                    // Za folder sa kataloškim SKU - čuvamo originalno ime fajla
+                    const origCatalogMinioObjectName = `${catalogSKU}/${config.folder}/${fileInfo.name}${fileInfo.ext}`;
                     await minioClient.fPutObject(
                         bucketName,
                         origCatalogMinioObjectName,
@@ -266,8 +266,8 @@ async function processImage(bucketName, objectName) {
 
                     // Upload na FTP samo za large format
                     if (config.folder === 'large') {
-                        // FTP putanja - šaljemo samo kataloški SKU verziju
-                        const origFtpFullPath = path.join(FTP_REMOTE_BASE_PATH, catalogSKU, config.folder, `${catalogSKU}${fileInfo.ext}`).replace(/\\/g, '/');
+                        // FTP putanja - šaljemo samo kataloški SKU verziju sa originalnim imenom fajla
+                        const origFtpFullPath = path.join(FTP_REMOTE_BASE_PATH, catalogSKU, config.folder, `${fileInfo.name}${fileInfo.ext}`).replace(/\\/g, '/');
 
                         console.log(`[FTP Upload Triggered] Uslov 'config.folder === "large"' je ispunjen za original format.`);
                         const ftpFileNameOrig = path.basename(origFtpFullPath);
