@@ -126,7 +126,7 @@ async function getSkuViaJdbc(catalogSku) {
 
     return new Promise((resolve, reject) => {
         // Prilagodite SQL prema vašoj bazi
-        const sql = `SELECT artikal_sifra AS sku FROM artikli WHERE kataloski_broj = '${catalogSku}' LIMIT 1`;
+        const sql = `SELECT sif_rob AS sku FROM roba WHERE kat_bro = '${catalogSku}' LIMIT 1`;
 
         jdbcPool.reserve((err, connection) => {
             if (err) {
