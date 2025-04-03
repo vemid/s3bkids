@@ -2,7 +2,7 @@ from flask import Flask, jsonify, request
 import os
 import logging
 import jaydebeapi
-import json
+import glob
 
 # Konfiguracija logovanja
 logging.basicConfig(
@@ -23,10 +23,31 @@ DB_USER = os.environ.get("INFORMIX_USER", "informix")
 DB_PASSWORD = os.environ.get("INFORMIX_PASSWORD", "password")
 DB_SERVER = os.environ.get("INFORMIX_SERVER", "ol_informix1170")
 
-# JDBC URL za Informix
-JDBC_URL = f"jdbc:informix-sqli://{DB_HOST}:{DB_PORT}/{DB_NAME}:INFORMIXSERVER={DB_SERVER}"
+# Novi parametri za lokalizaciju i podešavanja
+DB_LOCALE = os.environ.get("DB_LOCALE", "cs_cz.CP1250")
+DBDATE = os.environ.get("DBDATE", "DMY4.")
+DBMONEY = os.environ.get("DBMONEY", ".")
+DBLANG = os.environ.get("DBLANG", "cs_cz.CP1250")
+IFX_LOCK_MODE_WAIT = os.environ.get("IFX_LOCK_MODE_WAIT", "300")
+IFX_TRIMTRAILINGSPACES = os.environ.get("IFX_TRIMTRAILINGSPACES", "1")
+
+# JDBC URL za Informix sa dodatnim parametrima za lokalizaciju
+JDBC_URL = f"jdbc:informix-sqli://{DB_HOST}:{DB_PORT}/{DB_NAME}:INFORMIXSERVER={DB_SERVER};" + \
+           f"DB_LOCALE={DB_LOCALE};DBDATE={DBDATE};DBMONEY={DBMONEY};" + \
+           f"DBLANG={DBLANG};IFX_LOCK_MODE_WAIT={IFX_LOCK_MODE_WAIT};" + \
+           f"IFX_TRIMTRAILINGSPACES={IFX_TRIMTRAILINGSPACES}"
+
 JDBC_DRIVER = "com.informix.jdbc.IfxDriver"
 JDBC_JAR = "/usr/src/app/drivers/ifxjdbc.jar"
+
+# Pronađi JAR fajl dinamički ako standardni naziv ne postoji
+if not os.path.exists(JDBC_JAR):
+    jar_files = glob.glob("/usr/src/app/drivers/*.jar")
+    if jar_files:
+        JDBC_JAR = jar_files[0]
+        logger.info(f"Pronađen JAR fajl: {JDBC_JAR}")
+    else:
+        logger.warning("Nije pronađen nijedan JAR fajl u drivers direktorijumu, koristiće se mock režim")
 
 # Globalna konekcija
 conn = None
@@ -34,7 +55,11 @@ conn = None
 # Mock mapiranje za testiranje
 mock_sku_mapping = {
     "KSKUA12345678": "RSKUA12345678",
-    "KSKUB87654321": "RSKUB87654321"
+    "KSKUB87654321": "RSKUB87654321",
+    # Dodajte više mapiranja ovde
+    "KATA0001": "REAL0001",
+    "KATA0002": "REAL0002",
+    "KATA0003": "REAL0003"
 }
 
 def get_mock_sku(catalog_sku):
@@ -45,18 +70,65 @@ def init_connection():
     """Inicijalizuje konekciju sa bazom."""
     global conn
 
+    # Ako nema JAR fajla, ne pokušavaj konekciju
+    if not os.path.exists(JDBC_JAR):
+        logger.error(f"JAR fajl ne postoji na putanji: {JDBC_JAR}")
+        return False
+
     try:
         logger.info(f"Povezivanje sa Informix bazom: {JDBC_URL}")
-        conn = jaydebeapi.connect(
-            JDBC_DRIVER,
-            JDBC_URL,
-            [DB_USER, DB_PASSWORD],
-            JDBC_JAR
-        )
-        logger.info("Uspešno povezivanje sa bazom")
-        return True
+        logger.info(f"JDBC drajver: {JDBC_DRIVER}")
+        logger.info(f"JAR putanja: {JDBC_JAR}")
+
+        # Prikaži detalje o JAR fajlu
+        jar_size = os.path.getsize(JDBC_JAR)
+        logger.info(f"JAR fajl veličina: {jar_size} bajtova")
+
+        # Dodatni properties za konekciju
+        properties = {
+            "user": DB_USER,
+            "password": DB_PASSWORD,
+            "DB_LOCALE": DB_LOCALE,
+            "DBDATE": DBDATE,
+            "DBMONEY": DBMONEY,
+            "DBLANG": DBLANG,
+            "IFX_LOCK_MODE_WAIT": IFX_LOCK_MODE_WAIT,
+            "IFX_TRIMTRAILINGSPACES": IFX_TRIMTRAILINGSPACES
+        }
+
+        # Prvo pokušajte sa URL parametrima
+        try:
+            conn = jaydebeapi.connect(
+                JDBC_DRIVER,
+                JDBC_URL,
+                [DB_USER, DB_PASSWORD],
+                JDBC_JAR
+            )
+            logger.info("Uspešno povezivanje sa bazom (URL parametri)")
+            return True
+        except Exception as e:
+            logger.warning(f"Neuspeh povezivanja sa URL parametrima: {e}")
+            logger.info("Pokušaj sa properties...")
+
+            # Ako ne uspe sa URL parametrima, pokušajte sa properties
+            try:
+                # Koristimo osnovni URL bez dodatnih parametara
+                basic_url = f"jdbc:informix-sqli://{DB_HOST}:{DB_PORT}/{DB_NAME}:INFORMIXSERVER={DB_SERVER}"
+                conn = jaydebeapi.connect(
+                    JDBC_DRIVER,
+                    basic_url,
+                    properties,
+                    JDBC_JAR
+                )
+                logger.info("Uspešno povezivanje sa bazom (properties)")
+                return True
+            except Exception as e2:
+                logger.error(f"Neuspeh povezivanja sa properties: {e2}")
+                raise e2
+
     except Exception as e:
         logger.error(f"Greška pri povezivanju sa bazom: {e}")
+        logger.error(f"Detalji: {str(e)}")
         conn = None
         return False
 
@@ -71,7 +143,7 @@ def get_sku_from_db(catalog_sku):
 
     try:
         # Prilagodite SQL prema vašoj šemi baze
-        sql = f"SELECT sif_rob AS sku FROM roba WHERE kat_bro = '{catalog_sku}' LIMIT 1"
+        sql = f"SELECT artikal_sifra AS sku FROM artikli WHERE kataloski_broj = '{catalog_sku}' LIMIT 1"
 
         cursor = conn.cursor()
         cursor.execute(sql)
@@ -93,7 +165,7 @@ def get_sku_from_db(catalog_sku):
 @app.route("/health", methods=["GET"])
 def health_check():
     """Health check endpoint."""
-    return jsonify({"status": "SKU Translator servis je aktivan (Python verzija)"})
+    return jsonify({"status": "SKU Translator servis je aktivan (Python verzija sa podrškom za lokalizaciju)"})
 
 @app.route("/translate/<catalog_sku>", methods=["GET"])
 def translate_sku(catalog_sku):

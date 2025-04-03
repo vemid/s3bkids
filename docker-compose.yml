@@ -35,6 +35,12 @@ services:
       - INFORMIX_USER=${INFORMIX_USER:-informix}
       - INFORMIX_PASSWORD=${INFORMIX_PASSWORD:-password}
       - INFORMIX_SERVER=${INFORMIX_SERVER:-ol_informix1170}
+      - DB_LOCALE=cs_cz.CP1250
+      - DBDATE=DMY4.
+      - DBMONEY=.
+      - DBLANG=cs_cz.CP1250
+      - IFX_LOCK_MODE_WAIT=300
+      - IFX_TRIMTRAILINGSPACES=1
     ports:
       - "3002:3002"
     volumes:
