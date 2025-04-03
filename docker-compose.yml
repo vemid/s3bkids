@@ -89,12 +89,12 @@ services:
       - MINIO_SECRET_KEY=${MINIO_PASSWORD}
       - BUCKET_NAME=products
       # FTP konfiguracija ostaje ista
-      - FTP_HOST=${FTP_HOST}
-      - FTP_PORT=${FTP_PORT}
-      - FTP_USER=${FTP_USER}
-      - FTP_PASSWORD=${FTP_PASSWORD}
-      - FTP_SECURE=${FTP_SECURE}
-      - FTP_REMOTE_PATH=${FTP_REMOTE_PATH}
+      - FTP_HOST=${GEOX_FTP_HOST}
+      - FTP_PORT=${GEOX_FTP_PORT}
+      - FTP_USER=${GEOX_FTP_USER}
+      - FTP_PASSWORD=${GEOX_FTP_PASSWORD}
+      - FTP_SECURE=${GEOX_FTP_SECURE}
+      - FTP_REMOTE_PATH=${GEOX_FTP_REMOTE_PATH}
     ports:
       - "3001:3000"
     volumes:
