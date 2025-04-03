@@ -11,13 +11,13 @@ if [ ! -f ./mc ]; then
 fi
 
 # Podešavanje aliasa za vaš MinIO server sa vašim kredencijalima
-./mc alias set myminio http://localhost:9000 $MINIO_USER $MINIO_PASSWORD
+./mc alias set myminio http://minio:9000 $MINIO_USER $MINIO_PASSWORD
 
 # Kreiranje bucket-a ako ne postoji
 ./mc mb --ignore-existing myminio/products
 
 # Konfiguracija webhook notifikacija uz korišćenje vašeg webhook endpoint-a
-./mc admin config set myminio notify_webhook:resize endpoint=http://localhost:3000/webhook
+./mc admin config set myminio notify_webhook:resize endpoint=http://image-resizer:3000/webhook
 
 # Restartovanje MinIO servera da primeni promene
 echo "Restartovanje MinIO servera..."
