@@ -81,11 +81,18 @@ app.get('/health', (req, res) => {
 // Funkcija za izvlačenje kataloškog SKU iz naziva fajla
 function extractCatalogSKU(filename) {
     const basename = path.basename(filename);
-    const match = basename.match(/^([A-Za-z0-9]{13})/);
-    if (match && match[1]) {
-        return match[1];
+
+    // Prvo uklonimo ekstenziju
+    const nameWithoutExt = path.parse(basename).name;
+
+    // Opcija 1: Ako postoji podcrta "_", uzimamo sve do nje
+    const underscoreIndex = nameWithoutExt.indexOf('_');
+    if (underscoreIndex > 0) {
+        return nameWithoutExt.substring(0, underscoreIndex);
     }
-    return path.parse(basename).name;
+
+    // Opcija 2: Ako nema podcrte, uzimamo ceo naziv bez ekstenzije
+    return nameWithoutExt;
 }
 
 // Funkcija za prevođenje kataloškog SKU u pravi SKU
