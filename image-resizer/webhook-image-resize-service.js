@@ -178,7 +178,7 @@ async function processImage(bucketName, objectName) {
 
         await sharpInstance
             .clone() // Kloniraj pre promene formata
-            .webp({ quality: 90 }) // Postavi WebP kvalitet (npr. 90)
+            .webp({ quality: 100 }) // Postavi WebP kvalitet (npr. 90)
             .toFile(webpTempPath);
 
         // Prvo upload WebP na MinIO
