@@ -143,7 +143,7 @@ def get_sku_from_db(catalog_sku):
 
     try:
         # Prilagodite SQL prema vašoj šemi baze
-        sql = f"SELECT artikal_sifra AS sku FROM artikli WHERE kataloski_broj = '{catalog_sku}' LIMIT 1"
+        sql = f"SELECT sif_rob AS sku FROM roba WHERE kat_bro = '{catalog_sku}' LIMIT 1"
 
         cursor = conn.cursor()
         cursor.execute(sql)
