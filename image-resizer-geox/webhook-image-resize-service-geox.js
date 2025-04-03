@@ -4,6 +4,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const ftp = require("basic-ftp");
+const axios = require('axios');
 
 // Kreiranje Express aplikacije za webhook
 const app = express();
@@ -16,6 +17,9 @@ const MINIO_PORT = parseInt(process.env.MINIO_PORT || '9000');
 const MINIO_ACCESS_KEY = process.env.MINIO_ACCESS_KEY || 'admin';
 const MINIO_SECRET_KEY = process.env.MINIO_SECRET_KEY || 'password123';
 const BUCKET_NAME = process.env.BUCKET_NAME || 'geox'; // Promenjeno na 'geox' kao default
+
+// Konfiguracija za SKU translator servis
+const SKU_TRANSLATOR_URL = process.env.SKU_TRANSLATOR_URL || 'http://sku-translator:3002/translate';
 
 // FTP konfiguracija
 const FTP_HOST = process.env.FTP_HOST;
@@ -62,6 +66,7 @@ const OPTIONS = {
 console.log(`Geox servis za promenu veličine slika se pokreće...`);
 console.log(`MinIO konfiguracija: ${MINIO_ENDPOINT}:${MINIO_PORT}`);
 console.log(`Bucket: ${BUCKET_NAME}`);
+console.log(`SKU Translator URL: ${SKU_TRANSLATOR_URL}`);
 if (FTP_HOST && FTP_USER) {
     console.log(`FTP konfiguracija: Host=${FTP_HOST}, User=${FTP_USER}, Secure=${FTP_SECURE}, BasePath=${FTP_REMOTE_BASE_PATH}`);
 } else {
@@ -72,12 +77,6 @@ if (FTP_HOST && FTP_USER) {
 app.get('/health', (req, res) => {
     res.status(200).send('Geox servis je aktivan');
 });
-
-// Dodajemo axios za HTTP zahteve
-const axios = require('axios');
-
-// Konfiguracija za SKU translator servis
-const SKU_TRANSLATOR_URL = process.env.SKU_TRANSLATOR_URL || 'http://sku-translator:3002/translate';
 
 // Funkcija za izvlačenje kataloškog SKU iz naziva fajla
 function extractCatalogSKU(filename) {
@@ -108,10 +107,11 @@ async function translateSKU(catalogSKU) {
     }
 }
 
-// Funkcija za izvlačenje SKU iz naziva fajla (koristi translator servis)
+// Funkcija za dobijanje SKU iz naziva fajla
 async function extractSKU(filename) {
     const catalogSKU = extractCatalogSKU(filename);
     const realSKU = await translateSKU(catalogSKU);
+    console.log(`Dobijen kataloški SKU: ${catalogSKU}, preveden u: ${realSKU}`);
     return { catalogSKU, realSKU };
 }
 
@@ -194,7 +194,8 @@ async function processImage(bucketName, objectName) {
                     // Za pravi SKU (u MinIO)
                     const webpMinioObjectName = `${realSKU}/${config.folder}/${fileInfo.name}.webp`;
 
-                    // Za kataloški SKU - samo za FTP
+                    // Za kataloški SKU - i za MinIO i za FTP
+                    const webpCatalogMinioObjectName = `${catalogSKU}/${config.folder}/${fileInfo.name}.webp`;
                     const webpFtpFullPath = path.join(FTP_REMOTE_BASE_PATH, catalogSKU, config.folder, `${fileInfo.name}.webp`).replace(/\\/g, '/');
 
                     // 1. Obradi WebP verziju
@@ -219,7 +220,6 @@ async function processImage(bucketName, objectName) {
                     console.log(`Kreirana i uploadovana WebP slika na MinIO (pravi SKU): ${webpMinioObjectName}`);
 
                     // DODATNO: Upload WebP sa kataloškim SKU na MinIO (duplikat)
-                    const webpCatalogMinioObjectName = `${catalogSKU}/${config.folder}/${fileInfo.name}.webp`;
                     await minioClient.fPutObject(
                         bucketName,
                         webpCatalogMinioObjectName,
@@ -242,7 +242,8 @@ async function processImage(bucketName, objectName) {
                         // Za pravi SKU (u MinIO)
                         const origMinioObjectName = `${realSKU}/${config.folder}/${fileInfo.name}${fileInfo.ext}`;
 
-                        // Za kataloški SKU - samo za FTP
+                        // Za kataloški SKU - i za MinIO i za FTP
+                        const origCatalogMinioObjectName = `${catalogSKU}/${config.folder}/${fileInfo.name}${fileInfo.ext}`;
                         const origFtpFullPath = path.join(FTP_REMOTE_BASE_PATH, catalogSKU, config.folder, `${fileInfo.name}${fileInfo.ext}`).replace(/\\/g, '/');
 
                         await sharpInstance
@@ -258,7 +259,6 @@ async function processImage(bucketName, objectName) {
                         console.log(`Kreirana i uploadovana originalna slika na MinIO (pravi SKU): ${origMinioObjectName}`);
 
                         // DODATNO: Upload originala sa kataloškim SKU na MinIO (duplikat)
-                        const origCatalogMinioObjectName = `${catalogSKU}/${config.folder}/${fileInfo.name}${fileInfo.ext}`;
                         await minioClient.fPutObject(
                             bucketName,
                             origCatalogMinioObjectName,
