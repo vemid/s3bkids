@@ -29,7 +29,7 @@ const FTP_PASSWORD = process.env.FTP_PASSWORD;
 const FTP_SECURE = process.env.FTP_SECURE === 'true';
 const FTP_REMOTE_BASE_PATH = process.env.FTP_REMOTE_PATH || '/';
 // Dodavanje FTP_SEND parametra
-const FTP_SEND = process.env.GEOX_FTP_SEND === 'true';
+const FTP_SEND = process.env.FTP_SEND === 'true';
 
 // Validacija FTP konfiguracije (osnovna)
 if (!FTP_HOST || !FTP_USER || !FTP_PASSWORD) {
@@ -128,7 +128,7 @@ async function uploadToFtp(localFilePath, remoteFtpPath) {
     // Preskoči ako FTP nije konfigurisan ili FTP_SEND je false
     if (!FTP_HOST || !FTP_USER || !FTP_PASSWORD || !FTP_SEND) {
         if (!FTP_SEND) {
-            console.log(`Preskačem FTP upload jer je GEOX_FTP_SEND=${FTP_SEND}`);
+            console.log(`Preskačem FTP upload jer je FTP_SEND=${FTP_SEND}`);
         }
         return;
     }

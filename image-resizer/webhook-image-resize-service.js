@@ -24,6 +24,7 @@ const FTP_USER = process.env.FTP_USER;
 const FTP_PASSWORD = process.env.FTP_PASSWORD;
 const FTP_SECURE = process.env.FTP_SECURE === 'true'; // Mora biti 'true' da bi bilo true
 const FTP_REMOTE_BASE_PATH = process.env.FTP_REMOTE_PATH || '/'; // Osnovni direktorijum na FTP-u
+const FTP_SEND = process.env.FTP_SEND === 'true';
 
 // Validacija FTP konfiguracije (osnovna)
 if (!FTP_HOST || !FTP_USER || !FTP_PASSWORD) {
@@ -88,8 +89,10 @@ function extractSKU(filename) {
 // <-- Nova funkcija za FTP upload -->
 async function uploadToFtp(localFilePath, remoteFtpPath) {
   // Preskoči ako FTP nije konfigurisan
-  if (!FTP_HOST || !FTP_USER || !FTP_PASSWORD) {
-    // console.log(`FTP preskočen za ${localFilePath} (nije konfigurisan)`);
+  if (!FTP_HOST || !FTP_USER || !FTP_PASSWORD || !FTP_SEND) {
+    if (!FTP_SEND) {
+      console.log(`Preskačem FTP upload jer je FTP_SEND=${FTP_SEND}`);
+    }
     return;
   }
 
