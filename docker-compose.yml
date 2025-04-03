@@ -21,6 +21,25 @@ services:
     networks:
       - app-network
 
+  sku-translator:
+    build:
+      context: ./sku-translator
+      dockerfile: Dockerfile
+    container_name: sku-translator
+    restart: always
+    environment:
+      - PORT=3002
+      - INFORMIX_HOST=${INFORMIX_HOST:-informix-host}
+      - INFORMIX_PORT=${INFORMIX_PORT:-9088}
+      - INFORMIX_DB=${INFORMIX_DB:-database}
+      - INFORMIX_USER=${INFORMIX_USER:-informix}
+      - INFORMIX_PASSWORD=${INFORMIX_PASSWORD:-password}
+      - INFORMIX_SERVER=${INFORMIX_SERVER:-ol_informix1170}
+    ports:
+      - "3002:3002"
+    networks:
+      - app-network
+
   image-resizer:
     build:
       context: ./image-resizer
@@ -41,6 +60,35 @@ services:
       - FTP_PASSWORD=${FTP_PASSWORD}
       - FTP_SECURE=${FTP_SECURE}
       - FTP_REMOTE_PATH=${FTP_REMOTE_PATH}
+    volumes:
+      - ./image-resizer/temp:/usr/src/app/temp
+    depends_on:
+      - minio
+    restart: always
+    networks:
+      - app-network
+  image-resizer-geox:
+    build:
+      context: ./image-resizer-geox
+      dockerfile: Dockerfile
+    container_name: image-resizer-geox
+    # Ne izlažemo port 3000 jer će mu pristupati samo drugi kontejneri
+    environment:
+      # Koristimo ime kontejnera umjesto localhost
+      - MINIO_ENDPOINT=minio
+      - MINIO_PORT=9000
+      - MINIO_ACCESS_KEY=${MINIO_USER}
+      - MINIO_SECRET_KEY=${MINIO_PASSWORD}
+      - BUCKET_NAME=products
+      # FTP konfiguracija ostaje ista
+      - FTP_HOST=${FTP_HOST}
+      - FTP_PORT=${FTP_PORT}
+      - FTP_USER=${FTP_USER}
+      - FTP_PASSWORD=${FTP_PASSWORD}
+      - FTP_SECURE=${FTP_SECURE}
+      - FTP_REMOTE_PATH=${FTP_REMOTE_PATH}
+    ports:
+      - "3001:3000"
     volumes:
       - ./image-resizer/temp:/usr/src/app/temp
     depends_on:

@@ -1,0 +1,10 @@
+temp/
+node_modules/
+npm-debug.log
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+.git/
+.gitignore
