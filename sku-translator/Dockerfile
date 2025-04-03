@@ -10,19 +10,12 @@ RUN apt-get update && apt-get install -y \
 # Kreiranje direktorijuma za JDBC drajvere
 RUN mkdir -p drivers
 
-# Kopiraj package.json i package-lock.json
-COPY package*.json ./
+# Kopiraj package.json i sku-translator-service.js
+COPY package.json sku-translator-service.js ./
 
 # Instaliraj zavisnosti
 RUN npm install
-# Opciono: Mogu se instalirati samo ako postoje
 RUN npm install jdbc node-jt400 --no-save || true
-
-# Kopiraj source kod
-COPY sku-translator-service.js ./
-
-# Kopiraj JDBC drajvere (ako postoje)
-COPY ./drivers/* ./drivers/ || true
 
 # Izloži port
 EXPOSE 3002

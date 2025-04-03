@@ -37,6 +37,8 @@ services:
       - INFORMIX_SERVER=${INFORMIX_SERVER:-ol_informix1170}
     ports:
       - "3002:3002"
+    volumes:
+      - ./drivers:/usr/src/app/drivers
     networks:
       - app-network
 
