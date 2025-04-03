@@ -34,6 +34,13 @@ services:
       - MINIO_ACCESS_KEY=${MINIO_USER}
       - MINIO_SECRET_KEY=${MINIO_PASSWORD}
       - BUCKET_NAME=products
+      # FTP konfiguracija ostaje ista
+      - FTP_HOST=${FTP_HOST}
+      - FTP_PORT=${FTP_PORT}
+      - FTP_USER=${FTP_USER}
+      - FTP_PASSWORD=${FTP_PASSWORD}
+      - FTP_SECURE=${FTP_SECURE}
+      - FTP_REMOTE_PATH=${FTP_REMOTE_PATH}
     volumes:
       - ./image-resizer/temp:/usr/src/app/temp
     depends_on:
@@ -42,44 +49,46 @@ services:
     networks:
       - app-network
 
-  ftp-sync:
-    build:
-      context: ./ftp-sync
-      dockerfile: Dockerfile
-    container_name: ftp-sync
-    environment:
-      # FTP konfiguracija ostaje ista
-      - FTP_HOST=${FTP_HOST}
-      - FTP_PORT=${FTP_PORT}
-      - FTP_USER=${FTP_USER}
-      - FTP_PASSWORD=${FTP_PASSWORD}
-      - FTP_SECURE=${FTP_SECURE}
-      - FTP_REMOTE_PATH=${FTP_REMOTE_PATH}
+#  ftp-sync:
+#    build:
+#      context: ./ftp-sync
+#      dockerfile: Dockerfile
+#    container_name: ftp-sync
+#    environment:
+#      # FTP konfiguracija ostaje ista
+#      - FTP_HOST=${FTP_HOST}
+#      - FTP_PORT=${FTP_PORT}
+#      - FTP_USER=${FTP_USER}
+#      - FTP_PASSWORD=${FTP_PASSWORD}
+#      - FTP_SECURE=${FTP_SECURE}
+#      - FTP_REMOTE_PATH=${FTP_REMOTE_PATH}
+#
+#      # MinIO konfiguracija - koristimo ime kontejnera
+#      - MINIO_ENDPOINT=minio
+#      - MINIO_PORT=9000
+#      - MINIO_ACCESS_KEY=${MINIO_USER}
+#      - MINIO_SECRET_KEY=${MINIO_PASSWORD}
+#      - MINIO_BUCKET=products
+#
+#      # Raspored pokretanja
+#      - CRON_SCHEDULE=${FTP_CRON_SCHEDULE:-0 */6 * * *}
+#
+#      # Dodatne opcije
+#      - LOOKBACK_HOURS=${FTP_LOOKBACK_HOURS:-24}
+#      - DELETE_AFTER_UPLOAD=${FTP_DELETE_AFTER_UPLOAD:-false}
+#
+#      # Nova environment varijabla za webhook URL
+#      - WEBHOOK_URL=http://image-resizer:3000/resize
+#    volumes:
+#      - ./ftp-sync/temp:/app/temp
+#    depends_on:
+#      - minio
+#      - image-resizer
+#    restart: always
+#    networks:
+#      - app-network
 
-      # MinIO konfiguracija - koristimo ime kontejnera
-      - MINIO_ENDPOINT=minio
-      - MINIO_PORT=9000
-      - MINIO_ACCESS_KEY=${MINIO_USER}
-      - MINIO_SECRET_KEY=${MINIO_PASSWORD}
-      - MINIO_BUCKET=products
 
-      # Raspored pokretanja
-      - CRON_SCHEDULE=${FTP_CRON_SCHEDULE:-0 */6 * * *}
-
-      # Dodatne opcije
-      - LOOKBACK_HOURS=${FTP_LOOKBACK_HOURS:-24}
-      - DELETE_AFTER_UPLOAD=${FTP_DELETE_AFTER_UPLOAD:-false}
-
-      # Nova environment varijabla za webhook URL
-      - WEBHOOK_URL=http://image-resizer:3000/resize
-    volumes:
-      - ./ftp-sync/temp:/app/temp
-    depends_on:
-      - minio
-      - image-resizer
-    restart: always
-    networks:
-      - app-network
 #  mongodb:
 #    image: mongo:latest
 #    container_name: product-gallery-db
