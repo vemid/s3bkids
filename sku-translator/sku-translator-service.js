@@ -1,7 +1,25 @@
 const express = require('express');
-const { Sequelize, DataTypes } = require('sequelize');
 const app = express();
 app.use(express.json());
+
+// Učitaj JDBC modul samo ako je potrebno
+let jdbc = null;
+try {
+    jdbc = require('jdbc');
+    console.log('JDBC modul uspešno učitan.');
+} catch (error) {
+    console.warn('JDBC modul nije dostupan:', error.message);
+    console.warn('Servis će raditi u mock režimu.');
+}
+
+// Učitaj node-jt400 modul za IBM i baze ako je potrebno
+let jt400 = null;
+try {
+    jt400 = require('node-jt400');
+    console.log('JT400 modul uspešno učitan.');
+} catch (error) {
+    console.warn('JT400 modul nije dostupan:', error.message);
+}
 
 // Konfiguracija iz env varijabli
 const PORT = process.env.PORT || 3002;
@@ -12,53 +30,178 @@ const DB_USER = process.env.INFORMIX_USER || 'informix';
 const DB_PASSWORD = process.env.INFORMIX_PASSWORD || 'password';
 const DB_SERVER = process.env.INFORMIX_SERVER || 'ol_informix1170';
 
-// Konfiguracija za Informix konekciju
-const sequelize = new Sequelize(DB_NAME, DB_USER, DB_PASSWORD, {
-    host: DB_HOST,
-    port: DB_PORT,
-    dialect: 'informix',
-    dialectOptions: {
-        server: DB_SERVER
-    },
-    define: {
-        freezeTableName: true
-    },
-    logging: console.log
-});
+// JDBC konfiguracija
+const jdbcConfig = {
+    libpath: __dirname + '/drivers/ifxjdbc.jar', // Putanja do JDBC drajvera
+    drivername: 'com.informix.jdbc.IfxDriver',
+    url: `jdbc:informix-sqli://${DB_HOST}:${DB_PORT}/${DB_NAME}:INFORMIXSERVER=${DB_SERVER}`,
+    user: DB_USER,
+    password: DB_PASSWORD,
+    minpoolsize: 1,
+    maxpoolsize: 10
+};
 
-// Funkcija za proveru konekcije
-async function testConnection() {
+// JT400 konfiguracija (alternativa)
+const jt400Config = {
+    host: DB_HOST,
+    user: DB_USER,
+    password: DB_PASSWORD,
+    database: DB_NAME
+};
+
+// Inicijalizacija JDBC konekcije
+let jdbcPool = null;
+let jdbcInitialized = false;
+
+async function initJdbcConnection() {
+    if (!jdbc || jdbcInitialized) return false;
+
     try {
-        await sequelize.authenticate();
-        console.log('Uspešna konekcija sa Informix bazom.');
+        jdbcPool = new jdbc(jdbcConfig);
+
+        await new Promise((resolve, reject) => {
+            jdbcPool.initialize((err) => {
+                if (err) {
+                    console.error('Greška pri inicijalizaciji JDBC:', err);
+                    reject(err);
+                } else {
+                    console.log('JDBC inicijalizovan uspešno');
+                    resolve();
+                }
+            });
+        });
+
+        jdbcInitialized = true;
         return true;
     } catch (error) {
-        console.error('Neuspešna konekcija sa bazom:', error);
+        console.error('Greška pri inicijalizaciji JDBC:', error);
         return false;
     }
 }
 
-// Funkcija za dobavljanje SKU na osnovu kataloškog SKU
-async function getSkuFromCatalogSku(catalogSku) {
+// Inicijalizacija JT400 konekcije
+let jt400Pool = null;
+
+function initJt400Connection() {
+    if (!jt400 || jt400Pool) return false;
+
     try {
-        // Ovde treba prilagoditi pravi SQL upit prema vašoj šemi baze
-        const [results] = await sequelize.query(`
-      SELECT artikal_sifra AS sku
-      FROM artikli
-      WHERE kataloski_broj = '${catalogSku}'
-      LIMIT 1
-    `);
+        jt400Pool = jt400.pool(jt400Config);
+        console.log('JT400 konekcija inicijalizovana');
+        return true;
+    } catch (error) {
+        console.error('Greška pri inicijalizaciji JT400:', error);
+        return false;
+    }
+}
+
+// Testiranje konekcije (generička funkcija)
+async function testConnection() {
+    // Pokušaj sa JDBC
+    if (jdbc && !jdbcInitialized) {
+        const jdbcSuccess = await initJdbcConnection();
+        if (jdbcSuccess) return true;
+    }
+
+    // Pokušaj sa JT400
+    if (jt400 && !jt400Pool) {
+        const jt400Success = initJt400Connection();
+        if (jt400Success) return true;
+    }
+
+    // Probaj direktne konekcije (ako su već inicijalizovane)
+    if (jdbcInitialized) return true;
+    if (jt400Pool) return true;
+
+    console.log('Nijedna konekcija nije uspešna, korišćenje mock režima.');
+    return false;
+}
+
+// Funkcija za dobavljanje SKU kroz JDBC
+async function getSkuViaJdbc(catalogSku) {
+    if (!jdbcInitialized) {
+        const success = await initJdbcConnection();
+        if (!success) return null;
+    }
+
+    return new Promise((resolve, reject) => {
+        // Prilagodite SQL prema vašoj bazi
+        const sql = `SELECT artikal_sifra AS sku FROM artikli WHERE kataloski_broj = '${catalogSku}' LIMIT 1`;
+
+        jdbcPool.reserve((err, connection) => {
+            if (err) {
+                console.error('Greška pri rezervisanju konekcije:', err);
+                return reject(err);
+            }
+
+            connection.query(sql, (queryErr, results) => {
+                if (queryErr) {
+                    jdbcPool.release(connection, (releaseErr) => {
+                        if (releaseErr) console.error('Greška pri oslobađanju konekcije:', releaseErr);
+                    });
+                    return reject(queryErr);
+                }
+
+                jdbcPool.release(connection, (releaseErr) => {
+                    if (releaseErr) console.error('Greška pri oslobađanju konekcije:', releaseErr);
+                });
+
+                if (results && results.length > 0) {
+                    resolve(results[0].sku);
+                } else {
+                    resolve(null);
+                }
+            });
+        });
+    });
+}
+
+// Funkcija za dobavljanje SKU kroz JT400
+async function getSkuViaJt400(catalogSku) {
+    if (!jt400Pool) {
+        const success = initJt400Connection();
+        if (!success) return null;
+    }
+
+    try {
+        // Prilagodite SQL prema vašoj bazi
+        const sql = `SELECT artikal_sifra AS sku FROM artikli WHERE kataloski_broj = '${catalogSku}' FETCH FIRST 1 ROWS ONLY`;
+        const results = await jt400Pool.query(sql);
 
         if (results && results.length > 0) {
             return results[0].sku;
-        } else {
-            console.log(`Nije pronađen SKU za kataloški broj: ${catalogSku}`);
-            return null;
         }
+        return null;
     } catch (error) {
-        console.error(`Greška pri dobavljanju SKU za ${catalogSku}:`, error);
+        console.error('Greška pri JT400 upitu:', error);
         return null;
     }
+}
+
+// Funkcija koja kombinuje različite metode za dobavljanje SKU
+async function getSkuFromCatalogSku(catalogSku) {
+    // Probaj JDBC
+    if (jdbcInitialized || jdbc) {
+        try {
+            const jdbcResult = await getSkuViaJdbc(catalogSku);
+            if (jdbcResult) return jdbcResult;
+        } catch (e) {
+            console.error('JDBC greška:', e);
+        }
+    }
+
+    // Probaj JT400
+    if (jt400Pool || jt400) {
+        try {
+            const jt400Result = await getSkuViaJt400(catalogSku);
+            if (jt400Result) return jt400Result;
+        } catch (e) {
+            console.error('JT400 greška:', e);
+        }
+    }
+
+    console.log(`Nije pronađen SKU za kataloški broj: ${catalogSku} ni kroz jednu metodu`);
+    return null;
 }
 
 // Alternativna implementacija bez baze (za testiranje)

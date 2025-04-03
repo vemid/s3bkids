@@ -9,10 +9,10 @@
   },
   "dependencies": {
     "express": "^4.17.1",
-    "sequelize": "^6.19.0",
     "axios": "^1.3.4"
   },
   "optionalDependencies": {
-    "informix": "^0.8.0"
+    "jdbc": "^0.7.4",
+    "node-jt400": "^4.4.1"
   }
 }
