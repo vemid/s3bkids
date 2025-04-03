@@ -18,6 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Kopiraj source kod
 COPY sku_translator.py .
+COPY drivers/ifxjdbc.jar /usr/src/app/drivers/
 
 # Izloži port
 EXPOSE 3002
