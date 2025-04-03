@@ -132,6 +132,7 @@ async function uploadToFtp(localFilePath, remoteFtpPath) {
 
 
 // Funkcija za obradu slike
+// Funkcija za obradu slike
 async function processImage(bucketName, objectName) {
   try {
     console.log(`Obrada slike: ${objectName} iz bucket-a ${bucketName}`);
@@ -165,7 +166,8 @@ async function processImage(bucketName, objectName) {
         tempFilesToDelete.push(webpTempPath); // Dodaj u listu za brisanje
 
         const webpMinioObjectName = `${sku}/${config.folder}/${fileInfo.name}.webp`;
-        const webpFtpPath = path.join(FTP_REMOTE_BASE_PATH, sku, config.folder, `${fileInfo.name}.webp`).replace(/\\/g, '/');
+        // Originalna FTP putanja (i dalje potrebna za izvlačenje imena fajla)
+        const webpFtpFullPath = path.join(FTP_REMOTE_BASE_PATH, sku, config.folder, `${fileInfo.name}.webp`).replace(/\\/g, '/');
 
 
         // 1. Obradi WebP verziju
@@ -178,10 +180,10 @@ async function processImage(bucketName, objectName) {
 
         await sharpInstance
             .clone() // Kloniraj pre promene formata
-            .webp({ quality: 100 }) // Postavi WebP kvalitet (npr. 90)
+            .webp({ quality: 90 }) // Postavi WebP kvalitet (npr. 90)
             .toFile(webpTempPath);
 
-        // Prvo upload WebP na MinIO
+        // Prvo upload WebP na MinIO (sa punom putanjom)
         await minioClient.fPutObject(
             bucketName,
             webpMinioObjectName,
@@ -189,15 +191,18 @@ async function processImage(bucketName, objectName) {
         );
         console.log(`Kreirana i uploadovana WebP slika na MinIO: ${webpMinioObjectName}`);
 
-        // Zatim upload WebP na FTP - ALI SAMO AKO JE 'large'
-        // <-- IZMENA OVDE: Dodat IF uslov -->
+        // Zatim upload WebP na FTP - ALI SAMO AKO JE 'large' i SAMO FAJL U ROOT
         if (config.folder === 'large') {
           console.log(`[FTP Upload Triggered] Uslov 'config.folder === "large"' je ispunjen za WebP.`);
-          await uploadToFtp(webpTempPath, webpFtpPath); // <-- Poziv za FTP upload samo za 'large'
+          // <-- IZMENA: Kalkulacija putanje za FTP root -->
+          const ftpFileNameWebp = path.basename(webpFtpFullPath); // Izvuci samo ime fajla npr. "ime.webp"
+          const ftpRootPathWebp = path.join(FTP_REMOTE_BASE_PATH, ftpFileNameWebp).replace(/\\/g, '/'); // Spoji sa osnovnom putanjom
+          console.log(`[FTP Upload Path] Nova FTP putanja (root): ${ftpRootPathWebp}`);
+          await uploadToFtp(webpTempPath, ftpRootPathWebp); // <-- Poziv za FTP upload samo za 'large' U ROOT
+          // <-- Kraj IZMENE -->
         } else {
           console.log(`[FTP Upload Skipped] Preskačem FTP upload za WebP (${config.folder}).`);
         }
-        // <-- Kraj IZMENE -->
 
 
         // 2. Sačuvaj i originalni format ako je opcija uključena
@@ -207,13 +212,14 @@ async function processImage(bucketName, objectName) {
 
           // Definiši putanje pre čuvanja
           const origMinioObjectName = `${sku}/${config.folder}/${fileInfo.name}${fileInfo.ext}`;
-          const origFtpPath = path.join(FTP_REMOTE_BASE_PATH, sku, config.folder, `${fileInfo.name}${fileInfo.ext}`).replace(/\\/g, '/');
+          // Originalna FTP putanja (i dalje potrebna za izvlačenje imena fajla)
+          const origFtpFullPath = path.join(FTP_REMOTE_BASE_PATH, sku, config.folder, `${fileInfo.name}${fileInfo.ext}`).replace(/\\/g, '/');
 
           await sharpInstance // Koristi isti sharpInstance od pre promene formata
               .clone() // Kloniraj ponovo za originalni format
               .toFile(origTempPath);
 
-          // Prvo upload originala na MinIO
+          // Prvo upload originala na MinIO (sa punom putanjom)
           await minioClient.fPutObject(
               bucketName,
               origMinioObjectName,
@@ -221,15 +227,18 @@ async function processImage(bucketName, objectName) {
           );
           console.log(`Kreirana i uploadovana originalna slika na MinIO: ${origMinioObjectName}`);
 
-          // Zatim upload originala na FTP - ALI SAMO AKO JE 'large'
-          // <-- IZMENA OVDE: Dodat IF uslov -->
+          // Zatim upload originala na FTP - ALI SAMO AKO JE 'large' i SAMO FAJL U ROOT
           if (config.folder === 'large') {
             console.log(`[FTP Upload Triggered] Uslov 'config.folder === "large"' je ispunjen za original format.`);
-            await uploadToFtp(origTempPath, origFtpPath); // <-- Poziv za FTP upload samo za 'large'
+            // <-- IZMENA: Kalkulacija putanje za FTP root -->
+            const ftpFileNameOrig = path.basename(origFtpFullPath); // Izvuci samo ime fajla npr. "ime.jpg"
+            const ftpRootPathOrig = path.join(FTP_REMOTE_BASE_PATH, ftpFileNameOrig).replace(/\\/g, '/'); // Spoji sa osnovnom putanjom
+            console.log(`[FTP Upload Path] Nova FTP putanja (root): ${ftpRootPathOrig}`);
+            await uploadToFtp(origTempPath, ftpRootPathOrig); // <-- Poziv za FTP upload samo za 'large' U ROOT
+            // <-- Kraj IZMENE -->
           } else {
             console.log(`[FTP Upload Skipped] Preskačem FTP upload za original format (${config.folder}).`);
           }
-          // <-- Kraj IZMENE -->
         }
       } catch (resizeErr) {
         console.error(`Greška pri resize-u za ${config.suffix} (${objectName}):`, resizeErr);
@@ -239,7 +248,7 @@ async function processImage(bucketName, objectName) {
 
     // Obriši SVE privremene fajlove (originalni + svi generisani)
     console.log(`Brisanje privremenih fajlova za ${objectName}...`);
-    for (const filePath of tempFilesToDelete) { // Koristi for...of za async/await unutar petlje ako je potrebno, mada unlinkSync je ok
+    for (const filePath of tempFilesToDelete) {
       if (fs.existsSync(filePath)) {
         try {
           fs.unlinkSync(filePath);
