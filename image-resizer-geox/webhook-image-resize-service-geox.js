@@ -112,7 +112,7 @@ async function translateSKU(catalogSKU) {
 async function extractSKU(filename) {
     const catalogSKU = extractCatalogSKU(filename);
     const realSKU = await translateSKU(catalogSKU);
-    return realSKU;
+    return { catalogSKU, realSKU };
 }
 
 // Funkcija za FTP upload
@@ -166,8 +166,9 @@ async function processImage(bucketName, objectName) {
             return;
         }
 
-        const sku = await extractSKU(objectName);
-        console.log(`Izdvojen i preveden SKU: ${sku} iz ${objectName}`);
+        // Dobavi i kataloški i pravi SKU
+        const { catalogSKU, realSKU } = await extractSKU(objectName);
+        console.log(`Izdvojen kataloški SKU: ${catalogSKU} i preveden u pravi SKU: ${realSKU} iz ${objectName}`);
 
         const tempFilePath = path.join(TEMP_DIR, `original_${Date.now()}_${path.basename(objectName)}`);
         await minioClient.fGetObject(bucketName, objectName, tempFilePath);
@@ -188,70 +189,134 @@ async function processImage(bucketName, objectName) {
                 webpTempPath = path.join(TEMP_DIR, `${fileInfo.name}_${config.suffix}_${Date.now()}.webp`);
                 tempFilesToDelete.push(webpTempPath);
 
-                const webpMinioObjectName = `${sku}/${config.folder}/${fileInfo.name}.webp`;
-                const webpFtpFullPath = path.join(FTP_REMOTE_BASE_PATH, sku, config.folder, `${fileInfo.name}.webp`).replace(/\\/g, '/');
-
-                // 1. Obradi WebP verziju
-                const sharpInstance = sharp(tempFilePath)
-                    .resize({
-                        width: config.width,
-                        height: null,
-                        withoutEnlargement: true
-                    });
-
-                await sharpInstance
-                    .clone()
-                    .webp({ quality: 90 })
-                    .toFile(webpTempPath);
-
-                // Upload WebP na MinIO
-                await minioClient.fPutObject(
-                    bucketName,
-                    webpMinioObjectName,
-                    webpTempPath
-                );
-                console.log(`Kreirana i uploadovana WebP slika na MinIO: ${webpMinioObjectName}`);
-
-                // Upload WebP na FTP - SAMO AKO JE 'large'
+                // Putanje za veliki format (large) - i za pravi SKU i za kataloški SKU
                 if (config.folder === 'large') {
+                    // Za pravi SKU (u MinIO)
+                    const webpMinioObjectName = `${realSKU}/${config.folder}/${fileInfo.name}.webp`;
+
+                    // Za kataloški SKU - samo za FTP
+                    const webpFtpFullPath = path.join(FTP_REMOTE_BASE_PATH, catalogSKU, config.folder, `${fileInfo.name}.webp`).replace(/\\/g, '/');
+
+                    // 1. Obradi WebP verziju
+                    const sharpInstance = sharp(tempFilePath)
+                        .resize({
+                            width: config.width,
+                            height: null,
+                            withoutEnlargement: true
+                        });
+
+                    await sharpInstance
+                        .clone()
+                        .webp({ quality: 90 })
+                        .toFile(webpTempPath);
+
+                    // Upload WebP sa pravim SKU na MinIO
+                    await minioClient.fPutObject(
+                        bucketName,
+                        webpMinioObjectName,
+                        webpTempPath
+                    );
+                    console.log(`Kreirana i uploadovana WebP slika na MinIO (pravi SKU): ${webpMinioObjectName}`);
+
+                    // DODATNO: Upload WebP sa kataloškim SKU na MinIO (duplikat)
+                    const webpCatalogMinioObjectName = `${catalogSKU}/${config.folder}/${fileInfo.name}.webp`;
+                    await minioClient.fPutObject(
+                        bucketName,
+                        webpCatalogMinioObjectName,
+                        webpTempPath
+                    );
+                    console.log(`Kreirana i uploadovana WebP slika na MinIO (kataloški SKU): ${webpCatalogMinioObjectName}`);
+
+                    // Upload WebP na FTP - SAMO kataloški SKU
                     console.log(`[FTP Upload Triggered] Uslov 'config.folder === "large"' je ispunjen za WebP.`);
                     const ftpFileNameWebp = path.basename(webpFtpFullPath);
                     const ftpRootPathWebp = path.join(FTP_REMOTE_BASE_PATH, ftpFileNameWebp).replace(/\\/g, '/');
                     console.log(`[FTP Upload Path] Nova FTP putanja (root): ${ftpRootPathWebp}`);
                     await uploadToFtp(webpTempPath, ftpRootPathWebp);
-                } else {
-                    console.log(`[FTP Upload Skipped] Preskačem FTP upload za WebP (${config.folder}).`);
-                }
 
-                // 2. Sačuvaj i originalni format ako je opcija uključena
-                if (OPTIONS.saveOriginalFormat) {
-                    origTempPath = path.join(TEMP_DIR, `${fileInfo.name}_${config.suffix}_${Date.now()}${fileInfo.ext}`);
-                    tempFilesToDelete.push(origTempPath);
+                    // 2. Sačuvaj i originalni format ako je opcija uključena
+                    if (OPTIONS.saveOriginalFormat) {
+                        origTempPath = path.join(TEMP_DIR, `${fileInfo.name}_${config.suffix}_${Date.now()}${fileInfo.ext}`);
+                        tempFilesToDelete.push(origTempPath);
 
-                    const origMinioObjectName = `${sku}/${config.folder}/${fileInfo.name}${fileInfo.ext}`;
-                    const origFtpFullPath = path.join(FTP_REMOTE_BASE_PATH, sku, config.folder, `${fileInfo.name}${fileInfo.ext}`).replace(/\\/g, '/');
+                        // Za pravi SKU (u MinIO)
+                        const origMinioObjectName = `${realSKU}/${config.folder}/${fileInfo.name}${fileInfo.ext}`;
 
-                    await sharpInstance
-                        .clone()
-                        .toFile(origTempPath);
+                        // Za kataloški SKU - samo za FTP
+                        const origFtpFullPath = path.join(FTP_REMOTE_BASE_PATH, catalogSKU, config.folder, `${fileInfo.name}${fileInfo.ext}`).replace(/\\/g, '/');
 
-                    // Upload originala na MinIO
-                    await minioClient.fPutObject(
-                        bucketName,
-                        origMinioObjectName,
-                        origTempPath
-                    );
-                    console.log(`Kreirana i uploadovana originalna slika na MinIO: ${origMinioObjectName}`);
+                        await sharpInstance
+                            .clone()
+                            .toFile(origTempPath);
 
-                    // Upload originala na FTP - SAMO AKO JE 'large'
-                    if (config.folder === 'large') {
+                        // Upload originala sa pravim SKU na MinIO
+                        await minioClient.fPutObject(
+                            bucketName,
+                            origMinioObjectName,
+                            origTempPath
+                        );
+                        console.log(`Kreirana i uploadovana originalna slika na MinIO (pravi SKU): ${origMinioObjectName}`);
+
+                        // DODATNO: Upload originala sa kataloškim SKU na MinIO (duplikat)
+                        const origCatalogMinioObjectName = `${catalogSKU}/${config.folder}/${fileInfo.name}${fileInfo.ext}`;
+                        await minioClient.fPutObject(
+                            bucketName,
+                            origCatalogMinioObjectName,
+                            origTempPath
+                        );
+                        console.log(`Kreirana i uploadovana originalna slika na MinIO (kataloški SKU): ${origCatalogMinioObjectName}`);
+
+                        // Upload originala na FTP - SAMO kataloški SKU
                         console.log(`[FTP Upload Triggered] Uslov 'config.folder === "large"' je ispunjen za original format.`);
                         const ftpFileNameOrig = path.basename(origFtpFullPath);
                         const ftpRootPathOrig = path.join(FTP_REMOTE_BASE_PATH, ftpFileNameOrig).replace(/\\/g, '/');
                         console.log(`[FTP Upload Path] Nova FTP putanja (root): ${ftpRootPathOrig}`);
                         await uploadToFtp(origTempPath, ftpRootPathOrig);
-                    } else {
-                        console.log(`[FTP Upload Skipped] Preskačem FTP upload za original format (${config.folder}).`);
+                    }
+                } else {
+                    // Standardna obrada za ostale veličine (nije large)
+                    // Za njih koristimo samo pravi SKU
+                    const webpMinioObjectName = `${realSKU}/${config.folder}/${fileInfo.name}.webp`;
+
+                    // 1. Obradi WebP verziju
+                    const sharpInstance = sharp(tempFilePath)
+                        .resize({
+                            width: config.width,
+                            height: null,
+                            withoutEnlargement: true
+                        });
+
+                    await sharpInstance
+                        .clone()
+                        .webp({ quality: 90 })
+                        .toFile(webpTempPath);
+
+                    // Upload WebP na MinIO
+                    await minioClient.fPutObject(
+                        bucketName,
+                        webpMinioObjectName,
+                        webpTempPath
+                    );
+                    console.log(`Kreirana i uploadovana WebP slika na MinIO: ${webpMinioObjectName}`);
+
+                    // 2. Sačuvaj i originalni format ako je opcija uključena
+                    if (OPTIONS.saveOriginalFormat) {
+                        origTempPath = path.join(TEMP_DIR, `${fileInfo.name}_${config.suffix}_${Date.now()}${fileInfo.ext}`);
+                        tempFilesToDelete.push(origTempPath);
+
+                        const origMinioObjectName = `${realSKU}/${config.folder}/${fileInfo.name}${fileInfo.ext}`;
+
+                        await sharpInstance
+                            .clone()
+                            .toFile(origTempPath);
+
+                        // Upload originala na MinIO
+                        await minioClient.fPutObject(
+                            bucketName,
+                            origMinioObjectName,
+                            origTempPath
+                        );
+                        console.log(`Kreirana i uploadovana originalna slika na MinIO: ${origMinioObjectName}`);
                     }
                 }
             } catch (resizeErr) {
