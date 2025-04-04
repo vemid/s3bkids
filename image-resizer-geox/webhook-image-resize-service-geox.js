@@ -29,7 +29,7 @@ const FTP_PASSWORD = process.env.FTP_PASSWORD;
 const FTP_SECURE = process.env.FTP_SECURE === 'true';
 const FTP_REMOTE_BASE_PATH = process.env.FTP_REMOTE_PATH || '/';
 // Dodavanje FTP_SEND parametra
-const FTP_SEND = process.env.FTP_SEND === 'true';
+const FTP_SEND = process.env.GEOX_FTP_SEND === 'true';
 
 // Validacija FTP konfiguracije (osnovna)
 if (!FTP_HOST || !FTP_USER || !FTP_PASSWORD) {
@@ -96,6 +96,18 @@ function extractCatalogSKU(filename) {
     return nameWithoutExt;
 }
 
+// Funkcija za dobijanje sufiksa fajla (npr. _1, _2 itd.)
+function getFileSuffix(filename) {
+    const nameWithoutExt = path.parse(filename).name;
+    const underscoreIndex = nameWithoutExt.indexOf('_');
+
+    if (underscoreIndex > 0) {
+        return nameWithoutExt.substring(underscoreIndex);
+    }
+
+    return ''; // Nema sufiksa
+}
+
 // Funkcija za prevođenje kataloškog SKU u pravi SKU
 async function translateSKU(catalogSKU) {
     try {
@@ -119,8 +131,9 @@ async function translateSKU(catalogSKU) {
 async function extractSKU(filename) {
     const catalogSKU = extractCatalogSKU(filename);
     const realSKU = await translateSKU(catalogSKU);
-    console.log(`Dobijen kataloški SKU: ${catalogSKU}, preveden u: ${realSKU}`);
-    return { catalogSKU, realSKU };
+    const fileSuffix = getFileSuffix(filename);
+    console.log(`Dobijen kataloški SKU: ${catalogSKU}, preveden u: ${realSKU}, sufiks: "${fileSuffix}"`);
+    return { catalogSKU, realSKU, fileSuffix };
 }
 
 // Funkcija za FTP upload
@@ -128,7 +141,7 @@ async function uploadToFtp(localFilePath, remoteFtpPath) {
     // Preskoči ako FTP nije konfigurisan ili FTP_SEND je false
     if (!FTP_HOST || !FTP_USER || !FTP_PASSWORD || !FTP_SEND) {
         if (!FTP_SEND) {
-            console.log(`Preskačem FTP upload jer je FTP_SEND=${FTP_SEND}`);
+            console.log(`Preskačem FTP upload jer je GEOX_FTP_SEND=${FTP_SEND}`);
         }
         return;
     }
@@ -178,8 +191,8 @@ async function processImage(bucketName, objectName) {
         }
 
         // Dobavi i kataloški i pravi SKU
-        const { catalogSKU, realSKU } = await extractSKU(objectName);
-        console.log(`Izdvojen kataloški SKU: ${catalogSKU} i preveden u pravi SKU: ${realSKU} iz ${objectName}`);
+        const { catalogSKU, realSKU, fileSuffix } = await extractSKU(objectName);
+        console.log(`Izdvojen kataloški SKU: ${catalogSKU} i preveden u: ${realSKU}, sufiks: "${fileSuffix}"`);
 
         const tempFilePath = path.join(TEMP_DIR, `original_${Date.now()}_${path.basename(objectName)}`);
         await minioClient.fGetObject(bucketName, objectName, tempFilePath);
@@ -213,8 +226,8 @@ async function processImage(bucketName, objectName) {
                     .webp({ quality: 90 })
                     .toFile(webpTempPath);
 
-                // Za folder sa realnim SKU - čuvamo originalno ime fajla
-                const webpRealMinioObjectName = `${realSKU}/${config.folder}/${fileInfo.name}.webp`;
+                // Za folder sa realnim SKU - koristimo realSKU + sufiks za ime fajla
+                const webpRealMinioObjectName = `${realSKU}/${config.folder}/${realSKU}${fileSuffix}.webp`;
                 await minioClient.fPutObject(
                     bucketName,
                     webpRealMinioObjectName,
@@ -240,8 +253,8 @@ async function processImage(bucketName, objectName) {
                         .clone()
                         .toFile(origTempPath);
 
-                    // Za folder sa realnim SKU - čuvamo originalno ime fajla
-                    const origRealMinioObjectName = `${realSKU}/${config.folder}/${fileInfo.name}${fileInfo.ext}`;
+                    // Za folder sa realnim SKU - koristimo realSKU + sufiks za ime fajla
+                    const origRealMinioObjectName = `${realSKU}/${config.folder}/${realSKU}${fileSuffix}${fileInfo.ext}`;
                     await minioClient.fPutObject(
                         bucketName,
                         origRealMinioObjectName,
